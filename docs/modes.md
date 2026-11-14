@@ -41,7 +41,8 @@ At every 5 Hz step it polls the active targets and asks the director
 what to spawn (`due_spawns`).
 
 **The player** stands on the grass at `STAND_X, STAND_Z`, facing north,
-in adventure mode with a bow, 192 arrows and saturation:
+in adventure mode with a bow and 192 arrows. There's no Saturation
+effect, because it healed the player too fast to ever die:
 - walking, jumping and knockback are off; only the view turns;
 - difficulty is **normal**, so skeletons shoot and the player **can die**;
 - `immediate_respawn` and `keep_inventory` are on, and the spawn point is the standing spot.

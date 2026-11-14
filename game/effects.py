@@ -200,12 +200,12 @@ class Effects:
         self.cmd(title_cmd("New enemy!", "red", player=p))
 
     def keep_player(self) -> None:
-        """Re-apply the movement lock and food; after a death and respawn
-        Minecraft resets player attributes. Idempotent, called every few s."""
-        p = self.player
-        for c in lock_movement_cmds(p):
+        """Re-apply the movement lock; after a death and respawn Minecraft
+        resets player attributes. Idempotent, called every few s. No
+        Saturation: it kept the food bar full and healed the player
+        almost instantly, so nobody could die."""
+        for c in lock_movement_cmds(self.player):
             self.cmd(c)
-        self.cmd(f"effect give {p} minecraft:saturation infinite 0 true")
 
     def session_end(self) -> None:
         self.clear_entities()

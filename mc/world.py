@@ -153,7 +153,7 @@ def place_player(rcon: Rcon, player: str = config.PLAYER) -> bool:
         f"clear {p}",
         f"give {p} minecraft:bow",
         f"give {p} minecraft:arrow 192",
-        f"effect give {p} minecraft:saturation infinite 0 true",
+        f"effect clear {p} minecraft:saturation",  # it healed too fast to ever die
         *lock_movement_cmds(p),
     ]
     for c in steps:

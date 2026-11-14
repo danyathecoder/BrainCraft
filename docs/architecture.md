@@ -101,5 +101,5 @@ flowchart LR
 - **Brain events (rehab):**
   - `fatigue_z > 1.5` for 20 s with good quality → rest phase shown as dawn (`time set 23000`, "Take a breath"), then back to midnight with slower spawns.
   - ALI (vs the player's calibration) below −0.05 for 10 s → "rightward bias": `p_left` +0.3. Back above 0 for 10 s → off. Each switch holds at least 20 s.
-- **Player:** the movement lock and food are re-applied every 5 s, because a death and respawn resets them (skeletons shoot back; difficulty normal).
+- **Player:** the movement lock is re-applied every 5 s, because a death and respawn resets them (skeletons shoot back; difficulty normal).
 - Every decision is mirrored in-game (`title @p actionbar …`) and in the HUD log, so judges see why the game changed.
