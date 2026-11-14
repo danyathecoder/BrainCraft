@@ -10,7 +10,7 @@ GAME    ?= rcon       # rcon | sim | none
 MODE    ?= rehab      # rehab | fun
 PLAYER  ?= player
 DURATION ?= 600
-MC_NAME ?=            # Minecraft username(s) to whitelist, e.g. MC_NAME=Steve or MC_NAME="Steve Alex"
+MC_NAME ?=            # optional: only these Minecraft usernames may join, e.g. MC_NAME="Steve Alex"
 ARGS    ?=            # extra flags for `start`, e.g. ARGS="--oscar --no-browser"
 
 START = $(RUN) start --eeg $(strip $(EEG)) --game $(strip $(GAME)) --mode $(strip $(MODE)) \

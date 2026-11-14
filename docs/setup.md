@@ -29,7 +29,7 @@ make doctor                # what's installed / running (Java, server, LSL strea
 
 make start PLAYER=anna            # demo: bridge -> calibration (first time) -> Minecraft -> service -> HUD -> game
 make start PLAYER=anna MODE=fun   # fun mode
-make start PLAYER=anna MC_NAME=<minecraft-username>   # also whitelist your Minecraft account
+make start PLAYER=anna MC_NAME=<username>   # optional: only this Minecraft account may join
 make hud PLAYER=anna              # headset + service + HUD, no game (signal checks)
 make dev                          # no hardware: HUD sliders + simulated game
 make demo-synthetic               # no headset: synthetic EEG + real Minecraft
@@ -737,12 +737,12 @@ versions differ. Use the 26.3 launcher installation, and check
 `server.jar` is 26.3 (the setup script warns).
 
 **`You are not white-listed on this server!`** → Minecraft 26.3 servers
-start with the whitelist on. Add your Minecraft username while the server
-runs: `make whitelist MC_NAME=<username>` (or
-`poetry run python scripts/braincraft.py whitelist <username>`), or pass
-`MC_NAME=<username>` to `make start`. The name lookup needs internet; if it
-fails (`That player does not exist`) the launcher turns the whitelist
-off. By hand: `poetry run python -c "from mc.rcon import Rcon; print(Rcon().cmd('whitelist off'))"`.
+start with the whitelist on. Our setup script writes `white-list=false`
+and `make start` runs `whitelist off`, so anyone can join. For a server
+that is already running:
+`poetry run python -c "from mc.rcon import Rcon; print(Rcon().cmd('whitelist off'))"`.
+To let only your accounts in instead: `make start MC_NAME="<username> ..."`
+(the name lookup needs internet; if it fails the whitelist is turned off).
 
 **`No player was found`** → nobody is online, or the name passed with
 `--player` / `--name` / `MC_PLAYER` doesn't match the username (case

@@ -276,6 +276,10 @@ def server_properties(rcon_password: str, rcon_port: int) -> dict[str, str]:
         "view-distance": "8",
         "simulation-distance": "6",
         "online-mode": "true",
+        # 26.3 creates servers with the whitelist on; the demo server is
+        # open to any (paid, online-mode) account that can reach it.
+        "white-list": "false",
+        "enforce-whitelist": "false",
         "motd": "BrainCraft",
         "spawn-monsters": "false",
         "allow-flight": "true",

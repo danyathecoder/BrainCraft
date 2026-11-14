@@ -197,12 +197,15 @@ def server_command() -> str:
     return ""
 
 
-def whitelist(names: list[str]) -> None:
-    """Minecraft 26.3 servers start with the whitelist on: add the players.
+def with_rcon(command: str) -> None:
+    from mc.rcon import Rcon
 
-    Kept on (rather than disabled) so nobody else on the venue network can
-    join the demo server. Needs internet once per name (Mojang lookup).
-    """
+    with Rcon(timeout=10) as r:
+        say(f"{command}: {r.cmd(command).strip() or 'ok'}")
+
+
+def whitelist(names: list[str]) -> None:
+    """Add players to the whitelist (needs internet: Mojang name lookup)."""
     if not names:
         return
     from mc.rcon import Rcon
@@ -428,11 +431,11 @@ def cmd_start(args) -> int:
                 children.append(server)
                 if not wait_until("Minecraft server RCON", rcon_ok, 180, server, every=2):
                     die("Minecraft server did not open RCON")
-            if args.mc_name:
+            if args.mc_name:  # only these accounts may join
+                with_rcon("whitelist on")
                 whitelist(args.mc_name)
-            elif args.wait_player:
-                say("tip: if Minecraft says you're not whitelisted, add MC_NAME=<username> "
-                    "(make) or --mc-name <username>")
+            else:  # anyone may join (servers set up before this change had it on)
+                with_rcon("whitelist off")
             subprocess.call([PY, "-m", "mc.world"], cwd=ROOT)
             if args.wait_player:
                 say("join the server now: Minecraft 26.3 -> Multiplayer -> Direct Connection -> localhost")
@@ -553,7 +556,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     st.add_argument("--player", default="player", help="whose baseline to use (sessions/baseline-<player>.json)")
     st.add_argument("--recalibrate", action="store_true", help="record a new baseline first")
     st.add_argument("--mc-name", action="append", default=[], metavar="USERNAME",
-                    help="Minecraft username to whitelist (repeatable); 26.3 servers whitelist by default")
+                    help="only let these Minecraft usernames join (repeatable); default: anyone")
     st.add_argument("--name", help="session name (default <player>-<mode>-<time>)")
     st.add_argument("--duration", type=float, default=600.0, help="game session length, s")
     st.add_argument("--port", type=int, default=8000)
