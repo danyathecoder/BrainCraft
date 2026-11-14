@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BrainCraft HUD</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; background: #111; color: #eee; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  .row { display: grid; grid-template-columns: 140px 1fr 70px; gap: 12px; align-items: center; margin: 10px 0; }
+  .bar { height: 14px; background: #333; border-radius: 7px; position: relative; overflow: hidden; }
+  .fill { position: absolute; top: 0; bottom: 0; background: #4a9eff; }
+  .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #888; }
+  .meta { color: #aaa; font-size: 14px; margin: 16px 0; }
+  .bad { color: #ff6b6b; }
+  #mock { border-top: 1px solid #333; margin-top: 24px; padding-top: 12px; }
+  input[type=range] { width: 100%; }
+</style>
+</head>
+<body>
+<h1>BrainCraft HUD</h1>
+<!-- TODO(P4): director decision log, current mode, Chart.js history -->
+<div id="gauges"></div>
+<div class="meta" id="meta"></div>
+
+<div id="mock" hidden>
+  <h1>Mock controls</h1>
+  <div id="sliders"></div>
+  <label><input type="checkbox" id="jaw"> jaw clench</label>
+  <label><input type="checkbox" id="badq"> bad quality</label>
+</div>
+
+<script>
+const KEYS = ["engagement_z", "fatigue_z", "alpha_low_z"];
+const RANGE = 3; // z-scores shown from -3 to +3
+
+function gauge(key, value) {
+  const pct = Math.max(-RANGE, Math.min(RANGE, value)) / RANGE * 50;
+  const left = pct >= 0 ? 50 : 50 + pct;
+  return `<div class="row"><span>${key}</span>
+    <div class="bar"><div class="fill" style="left:${left}%;width:${Math.abs(pct)}%"></div><div class="mid"></div></div>
+    <span>${value.toFixed(2)}</span></div>`;
+}
+
+async function poll() {
+  try {
+    const s = await (await fetch("/state")).json();
+    document.getElementById("gauges").innerHTML = KEYS.map(k => gauge(k, s[k])).join("");
+    const q = s.quality === "ok" ? "ok" : `<span class="bad">${s.quality}</span>`;
+    document.getElementById("meta").innerHTML =
+      `source: ${s.source} · quality: ${q} · artifact: ${s.artifact} · jaw: ${s.jaw_clench}`;
+    document.getElementById("mock").hidden = s.source !== "mock";
+  } catch (e) {
+    document.getElementById("meta").textContent = "state service unreachable";
+  }
+}
+
+function sendMock(body) {
+  fetch("/mock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+document.getElementById("sliders").innerHTML = KEYS.map(k =>
+  `<div class="row"><span>${k}</span><input type="range" min="-3" max="3" step="0.1" value="0" data-key="${k}"><span></span></div>`
+).join("");
+document.querySelectorAll("#sliders input").forEach(el =>
+  el.addEventListener("input", () => sendMock({ [el.dataset.key]: parseFloat(el.value) })));
+document.getElementById("jaw").addEventListener("change", e => sendMock({ jaw_clench: e.target.checked }));
+document.getElementById("badq").addEventListener("change", e => sendMock({ quality: e.target.checked ? "bad" : "ok" }));
+
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>
