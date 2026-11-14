@@ -44,17 +44,25 @@ What `make start` does (`--eeg gpype --game rcon`):
 2. calibrates the player if `sessions/baseline-<player>.json` doesn't
    exist (or with `ARGS=--recalibrate`), in the foreground: follow the
    instructions;
-3. starts the Minecraft server if RCON isn't answering, runs `mc.world`,
+3. starts the state service with the right settings, **checks it
+   reports `source=eeg`** and opens the HUD (<http://localhost:8000>),
+   so the raw EEG scope is visible while Minecraft starts;
+4. starts the Minecraft server if RCON isn't answering, runs `mc.world`,
    waits for you to join `localhost`, then puts you on the tower;
-4. starts the state service with the right settings and **checks it
-   reports `source=eeg`**, then opens the HUD;
 5. starts the game loop; when the session ends it opens the report and
    keeps the service and HUD running.
 
 Other choices: `EEG=unicorn` (Unicorn LSL app already streaming),
 `EEG=synthetic`, `EEG=mock`; `GAME=sim` or `GAME=none`;
-`DURATION=300`; `ARGS="--oscar --no-browser --no-wait-player"`. Logs of
-every service: `sessions/logs/<time>-<service>.log`.
+`DURATION=300`; `ARGS="--oscar --no-browser --no-wait-player"`.
+
+**Logs:** the launcher terminal shows every service's output with a
+prefix (`[service]`, `[bridge]`, `[minecraft]`, `[game]`); the full logs
+are in `sessions/logs/<time>-<service>.log`. Follow one live in another
+terminal: `Get-Content sessions\logs\<time>-service.log -Wait`
+(PowerShell) or `tail -f sessions/logs/<time>-service.log`. The state
+service's API is browsable at <http://localhost:8000/docs> (`/state`,
+`/status`, `/decisions`, `/raw`, `/mode`).
 
 The sections below describe each piece on its own, for debugging or
 running pieces by hand.

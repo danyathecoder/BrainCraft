@@ -429,7 +429,26 @@ def cmd_start(args) -> int:
                 say(f"using baseline {base.relative_to(ROOT)} (--recalibrate for a new one)")
             service_env["BRAINCRAFT_BASELINE"] = str(base)
 
-        # 3. Minecraft
+        # 3. state service + HUD
+        service = Child("service", [PY, "-m", "uvicorn", "state_service:app",
+                                    "--host", "127.0.0.1", "--port", str(args.port),
+                                    "--no-access-log"],
+                        env=service_env, stamp=stamp)
+        children.append(service)
+        url = f"http://127.0.0.1:{args.port}"
+        if not wait_until("state service", lambda: http_json(f"{url}/state") is not None, 30, service):
+            die("state service did not answer")
+        source = http_json(f"{url}/state").get("source")
+        say(f"state service up, source={source}")
+        if source != service_env["BRAINCRAFT_SOURCE"]:
+            die(f"service reports source={source}, expected {service_env['BRAINCRAFT_SOURCE']}")
+        hud = f"http://localhost:{args.port}"
+        say(f"HUD: {hud}   API: {hud}/docs   logs: "
+            f"{LOGS.relative_to(ROOT)}{os.sep}{stamp}-<bridge|service|minecraft|game>.log")
+        if not args.no_browser:
+            webbrowser.open(hud)
+
+        # 4. Minecraft (HUD is already up meanwhile)
         if args.game == "rcon":
             if rcon_ok():
                 say("Minecraft server already running")
@@ -459,24 +478,6 @@ def cmd_start(args) -> int:
                 players = players_online()
                 if players:
                     subprocess.call([PY, "-m", "mc.world", "--player", players[0]], cwd=ROOT)
-
-        # 4. state service
-        service = Child("service", [PY, "-m", "uvicorn", "state_service:app",
-                                    "--host", "127.0.0.1", "--port", str(args.port),
-                                    "--no-access-log"],
-                        env=service_env, stamp=stamp)
-        children.append(service)
-        url = f"http://127.0.0.1:{args.port}"
-        if not wait_until("state service", lambda: http_json(f"{url}/state") is not None, 30, service):
-            die("state service did not answer")
-        source = http_json(f"{url}/state").get("source")
-        say(f"state service up, source={source}")
-        if source != service_env["BRAINCRAFT_SOURCE"]:
-            die(f"service reports source={source}, expected {service_env['BRAINCRAFT_SOURCE']}")
-        hud = f"http://localhost:{args.port}"
-        say(f"HUD: {hud}")
-        if not args.no_browser:
-            webbrowser.open(hud)
 
         # 5. game loop
         game = None
