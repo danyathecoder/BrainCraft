@@ -145,7 +145,8 @@ def test_analyzer_contact_and_bad_channels():
     noisy[:, F.CH["Cz"]] += 400 * np.sin(np.arange(len(noisy)) * 2 * np.pi * 6 / FS)
     res = an.step(noisy)
     assert res.ok  # engagement falls back to Fz alone
-    assert F.indices(res.bp, {"Fz"}) is None  # fatigue needs Fz
+    assert F.indices(res.bp, {"Fz"}) is not None  # fatigue falls back to Cz
+    assert F.indices(res.bp, {"Fz", "Cz", "C3", "C4"}) is None  # nothing left
 
 
 def test_analyzer_legacy_holds_after_jaw():

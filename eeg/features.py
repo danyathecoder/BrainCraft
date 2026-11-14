@@ -55,8 +55,11 @@ FLAT_UV, NOISY_UV = 0.5, 100.0  # channel RMS after 1-40 Hz filtering
 SEGMENT_S = 1.0
 MIN_CLEAN_SEGMENTS = 2
 KEY_CHANNELS = ("Fz", "Cz", "Pz", "Oz")
-# Channel groups of each index; bad channels are dropped within the group.
+# Channel groups of each index; bad channels are dropped within the group,
+# and if none is left the (nearby) fallback group is used instead.
 INDEX_CHANNELS = {"engagement": ("Fz", "Cz"), "fatigue": ("Fz",), "alpha_low": ("Pz", "Oz")}
+INDEX_FALLBACK = {"engagement": ("C3", "C4"), "fatigue": ("Cz", "C3", "C4"),
+                  "alpha_low": ("PO7", "PO8")}
 ANALYZER_VERSION = "segments-1s"  # stored in baselines; recalibrate on change
 JAW_RATIO = 4.0
 JAW_MIN_UV = 6.0  # never call 'jaw' below this HF RMS
@@ -143,9 +146,13 @@ def indices(bp: dict[str, np.ndarray],
             bad: frozenset[str] | set[str] = frozenset()) -> dict[str, float] | None:
     """The three indices; channels in `bad` are left out of their group.
 
-    None if an index has no good channel left.
+    A group with no good channel left falls back to INDEX_FALLBACK; None if
+    that has no good channel either.
     """
-    groups = {k: tuple(c for c in chans if c not in bad) for k, chans in INDEX_CHANNELS.items()}
+    groups = {}
+    for k, chans in INDEX_CHANNELS.items():
+        groups[k] = (tuple(c for c in chans if c not in bad)
+                     or tuple(c for c in INDEX_FALLBACK[k] if c not in bad))
     if not all(groups.values()):
         return None
     return {"engagement": engagement(bp, groups["engagement"]),
@@ -264,6 +271,7 @@ class ArtifactDetector:
     motion_deg_s: float = MOTION_DEG_S
     jaw_ratio: float = JAW_RATIO
     blink_uv: float = BLINK_UV
+    model: object | None = None  # eeg.artifact_model.ArtifactModel; None = thresholds
     _hf: deque = field(default_factory=deque)
 
     @property
@@ -276,6 +284,8 @@ class ArtifactDetector:
                  learn: bool = True) -> str:
         label = artifact(window_raw, gyro, self.fs, self.hf_ref,
                          self.motion_deg_s, self.jaw_ratio, self.blink_uv)
+        if self.model is not None and label != "contact":  # contact stays a hard rule
+            label = self.model.predict_label(window_raw, gyro, self.hf_ref, self.fs)
         if learn and label not in ("motion", "contact"):
             # jaw seconds are included on purpose: they are brief, the median
             # ignores them, and this way a noisy headset can't lock us in 'jaw'.
