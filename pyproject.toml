@@ -3,7 +3,7 @@ name = "braincraft"
 version = "0.1.0"
 description = "Neuroadaptive Minecraft game driven by EEG (Heroes of the Brain 2026)"
 readme = "README.md"
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 dependencies = [
     "numpy",
     "scipy",
@@ -13,6 +13,7 @@ dependencies = [
     "pandas",
     "plotly",
     "certifi",
+    "scikit-learn",
 ]
 
 [tool.poetry]

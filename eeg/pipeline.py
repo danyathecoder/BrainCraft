@@ -162,7 +162,9 @@ def run(
             return
 
         # 3. loop
-        analyzer = Analyzer(fs=stream.fs)
+        from eeg.artifact_model import default_detector
+
+        analyzer = Analyzer(fs=stream.fs, detector=default_detector(stream.fs, prompt))
         alpha = 1.0 - math.exp(-period / ema_s) if ema_s > 0 else 1.0
         smooth: dict[str, float] | None = None
         n_ok = 0

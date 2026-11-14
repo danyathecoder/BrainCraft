@@ -131,7 +131,9 @@ def run_calibration(
     was seen (ratio >= ALPHA_JUMP_MIN).
     """
     stop = stop or threading.Event()
-    analyzer = Analyzer(fs=stream.fs)
+    from eeg.artifact_model import default_detector
+
+    analyzer = Analyzer(fs=stream.fs, detector=default_detector(stream.fs))
     fs = stream.fs
     step = max(int(round(period * fs)), 1)
     gen = getattr(stream, "generator", None) if simulate else None
@@ -230,7 +232,9 @@ def quick_baseline(
     Returns None if `stop` is set; raises CalibrationError without data.
     """
     stop = stop or threading.Event()
-    analyzer = Analyzer(fs=stream.fs)
+    from eeg.artifact_model import default_detector
+
+    analyzer = Analyzer(fs=stream.fs, detector=default_detector(stream.fs))
     step = max(int(round(period * stream.fs)), 1)
     if not stream.wait_for_samples(int(window_s * stream.fs), timeout=window_s + 10):
         if stop.is_set():

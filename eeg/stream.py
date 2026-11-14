@@ -101,6 +101,7 @@ class EEGStream:
         self._thread: threading.Thread | None = None
         self.total_samples = 0
         self.last_data_time = 0.0  # wall clock of the last chunk
+        self._rec: list[tuple[np.ndarray, np.ndarray | None]] | None = None
         self._alloc(FS, 3)
 
     # --- buffer ------------------------------------------------------------
@@ -122,6 +123,8 @@ class EEGStream:
         eeg = chunk[:, self.layout.eeg] * self.scale
         gyro = chunk[:, self.layout.gyro] if self.layout.gyro else None
         with self._lock:
+            if self._rec is not None:
+                self._rec.append((eeg.copy(), None if gyro is None else gyro.copy()))
             n = len(eeg)
             if n >= self._n:
                 eeg, n_keep = eeg[-self._n :], self._n
@@ -167,6 +170,25 @@ class EEGStream:
                     return False
                 self._lock.wait(0.1 if left is None else min(0.1, left))
             return self.total_samples >= total
+
+    # --- full recording (beyond the ring buffer) -----------------------------
+
+    def start_recording(self) -> int:
+        """Keep every sample from now on; returns total_samples at the start."""
+        with self._lock:
+            self._rec = []
+            return self.total_samples
+
+    def stop_recording(self) -> tuple[np.ndarray, np.ndarray | None]:
+        """(eeg (n, 8) uV, gyro (n, 3) or None) since start_recording()."""
+        with self._lock:
+            rec, self._rec = self._rec or [], None
+        if not rec:
+            return np.zeros((0, len(EEG_CHANNELS))), None
+        eeg = np.concatenate([e for e, _ in rec])
+        gyros = [g for _, g in rec]
+        gyro = np.concatenate(gyros) if all(g is not None for g in gyros) else None
+        return eeg, gyro
 
     @property
     def seconds_since_data(self) -> float:
