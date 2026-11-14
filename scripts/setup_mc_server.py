@@ -58,8 +58,25 @@ def _is_cert_error(e: BaseException) -> bool:
     return isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(e)
 
 
+def _ssl_context() -> ssl.SSLContext:
+    """The system trust store plus certifi's CA bundle, if installed.
+
+    python.org's macOS Python has its own OpenSSL with no trusted CAs until
+    'Install Certificates.command' is run, so every HTTPS check fails;
+    certifi's bundle (a project dependency) fixes that. Verification stays on.
+    """
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+
+        ctx.load_verify_locations(cafile=certifi.where())
+    except Exception:  # not installed: system store only, curl fallback remains
+        pass
+    return ctx
+
+
 def _urllib_get(url: str) -> bytes:
-    with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT_S) as resp:
+    with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT_S, context=_ssl_context()) as resp:
         return resp.read()
 
 

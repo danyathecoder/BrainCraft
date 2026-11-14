@@ -12,6 +12,7 @@ dependencies = [
     "uvicorn",
     "pandas",
     "plotly",
+    "certifi",
 ]
 
 [tool.poetry]

@@ -344,3 +344,11 @@ def test_default_java_finds_keg_only_homebrew(tmp_path, monkeypatch):
 def test_bad_memory_rejected(tmp_path):
     with pytest.raises(SystemExit):
         setup.parse_args(["--memory", "lots"])
+
+
+def test_ssl_context_trusts_certifi_bundle():
+    # python.org's macOS Python has no CA certificates of its own; the
+    # context must still trust public CAs (Mojang's) via certifi.
+    ctx = setup._ssl_context()
+    assert ctx.verify_mode == setup.ssl.CERT_REQUIRED and ctx.check_hostname
+    assert ctx.cert_store_stats()["x509_ca"] > 50
