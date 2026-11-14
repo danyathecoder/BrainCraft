@@ -318,7 +318,7 @@ def cmd_doctor(args) -> int:
     def row(name, ok, detail=""):
         rows.append((name, ok, detail))
 
-    row("Python 3.10-3.14", (3, 10) <= sys.version_info[:2] <= (3, 14), sys.version.split()[0])
+    row("Python 3.11-3.14", (3, 11) <= sys.version_info[:2] <= (3, 14), sys.version.split()[0])
     row("Poetry", bool(shutil.which("poetry")), shutil.which("poetry") or "not on PATH")
     for mod in ("numpy", "fastapi", "pylsl"):
         try:
@@ -417,6 +417,37 @@ def cmd_headset(args) -> int:
         return subprocess.call(cmd, cwd=ROOT)
     except KeyboardInterrupt:
         return 0
+
+
+def cmd_artifacts(args) -> int:
+    """Labelled artifact protocol (eeg.protocol) for tuning, OSCAR A/B and training."""
+    use_eeg_host(args.eeg_host)
+    cmd = [PY, "-m", "eeg.protocol", "--player", args.player]
+    if args.oscar:
+        cmd.append("--oscar")
+    if args.name:
+        cmd += ["--name", args.name]
+    if args.synthetic:
+        cmd += ["--source", "synthetic", "--fast"]
+    say("labelled recording, about 3.5 min: the player follows the prompts below")
+    return subprocess.call(cmd, cwd=ROOT)
+
+
+def cmd_train_artifacts(args) -> int:
+    files = [str(p) for p in sorted(SESSIONS.glob("artifacts-*.npz"))]
+    if not files:
+        die("no recordings: make artifacts PLAYER=<name> first")
+    say(f"training on {len(files)} recordings")
+    cmd = [PY, "-m", "eeg.artifact_model", "train", *files] + (["--force"] if args.force else [])
+    return subprocess.call(cmd, cwd=ROOT)
+
+
+def cmd_replay(args) -> int:
+    files = args.files or [str(p) for p in sorted(SESSIONS.glob("artifacts-*.npz"))
+                           + sorted(SESSIONS.glob("raw-*.csv"))]
+    if not files:
+        die("no recordings in sessions/ (artifacts-*.npz or raw-*.csv)")
+    return subprocess.call([PY, "-m", "eeg.replay", *files, *args.extra], cwd=ROOT)
 
 
 def cmd_whitelist(args) -> int:
@@ -688,6 +719,21 @@ def parse_args(argv=None) -> argparse.Namespace:
     k.add_argument("--name", help="LSL stream name")
     k.add_argument("--eeg-host", help="headset computer's IP")
 
+    a = sub.add_parser("artifacts", help="labelled artifact recording (blinks, jaw, head, play)")
+    a.add_argument("--player", default="player")
+    a.add_argument("--oscar", action="store_true", help="label: the bridge runs with --oscar")
+    a.add_argument("--name", help="LSL stream name")
+    a.add_argument("--eeg-host", help="headset computer's IP")
+    a.add_argument("--synthetic", action="store_true", help="no headset: synthetic, fast")
+
+    ta = sub.add_parser("train-artifacts", help="train the artifact model on all recordings")
+    ta.add_argument("--force", action="store_true", help="save even if not better than thresholds")
+
+    rp = sub.add_parser("replay", help="signal-quality numbers for recordings (default: all)")
+    rp.add_argument("files", nargs="*")
+    rp.add_argument("--extra", nargs=argparse.REMAINDER, default=[],
+                    help="passed to eeg.replay, e.g. --extra --vs-legacy")
+
     w = sub.add_parser("whitelist", help="allow Minecraft usernames to join the running server")
     w.add_argument("names", nargs="+")
 
@@ -737,7 +783,8 @@ def main(argv=None) -> int:
     return {
         "setup": cmd_setup, "doctor": cmd_doctor, "check": cmd_check,
         "calibrate": cmd_calibrate, "report": cmd_report, "start": cmd_start,
-        "whitelist": cmd_whitelist, "headset": cmd_headset,
+        "whitelist": cmd_whitelist, "headset": cmd_headset, "artifacts": cmd_artifacts,
+        "train-artifacts": cmd_train_artifacts, "replay": cmd_replay,
     }[args.command](args)
 
 

@@ -147,7 +147,7 @@ headset + `eeg.gpype_bridge` → `eeg.check` → calibration → state service (
 
 | Tool | Version | Needed for |
 |---|---|---|
-| Python | 3.10–3.14 | everything |
+| Python | 3.11–3.14 | everything |
 | Poetry | 2.x | dependencies (`poetry install`) |
 | Git | any | the repo |
 | Java | **25** for Minecraft 26.3 (verified from Mojang's version JSON; the setup script checks it) | Minecraft server |
@@ -746,15 +746,21 @@ and the director's decisions.
 
 ### 13a. Signal quality
 
-Every second the EEG pipeline labels the brain state:
+Every second the EEG pipeline analyses the last 4 s **in 1 s segments**.
+Each segment gets an artifact label; band powers come from the clean
+segments only, so the window is usable with at least 2 clean seconds
+out of 4. Channels that are saturated, flat or noisy in those seconds
+are left out of their index (fatigue Fz → Cz/C3/C4, engagement Fz+Cz →
+C3+C4, alpha Pz+Oz → PO7+PO8).
 
 | Label | Meaning | What the game does |
 |---|---|---|
-| usable (`quality=ok`) | clean 4 s window | z-scores update |
+| usable (`quality=ok`) | ≥ 2 clean seconds in the 4 s window | z-scores update (the newest second's artifact is still reported, so a jaw clench fires the flare) |
+| bad contact | a key channel (Fz, Cz, Pz, Oz) at the amplifier limit (±750 mV): electrode off or ear clip loose | that second is left out |
 | blink | large frontal deflection (Fz) | z-scores held |
 | jaw / muscle | 20–120 Hz power burst (jaw, face, talking) | z-scores held; in fun mode a jaw clench is also the flare |
 | head motion | gyroscope above 30 °/s | z-scores held |
-| held | an artifact is still inside the 4 s window, no data, or calibrating | z-scores held |
+| held | fewer than 2 clean seconds, no data, or calibrating | z-scores held |
 
 Held z-scores keep their last good values, so the director never reacts
 to noise. But if most seconds are not usable, the brain-driven decisions
@@ -772,6 +778,17 @@ to noise. But if most seconds are not usable, the brain-driven decisions
   per-minute chart and advice. Rough guide: **≥ 70 % usable is good**,
   40–70 % fair, < 40 % poor.
 
+**Fit checklist (do this first).** Our first raw recordings were
+mostly contact problems, not artifacts: signals clipping at ±750 mV,
+most power below 1 Hz, 50 Hz hum and 100–1000 µV noise. No algorithm
+fixes that.
+
+1. Ear clips (reference and ground) on **both mastoids**, behind the ears, skin wiped.
+2. **Gel** on the electrodes, worked through the hair at Fz, Cz, Pz, Oz.
+3. Wait 2–5 minutes; the player sits still and moves only the mouse.
+4. Accept only when every channel in the HUD scope is **blue**, roughly
+   10–50 µV, with no "SATURATED" warning.
+
 **Improving it**
 
 - Head motion: player rests the head, moves only the mouse; headset
@@ -783,6 +800,61 @@ to noise. But if most seconds are not usable, the brain-driven decisions
   signal to settle.
 - Calibrate (or take the quick baseline) only once the scope looks
   clean: a baseline recorded on noise makes every z-score meaningless.
+  Baselines recorded before the per-second analysis trigger a
+  "recalibrate" warning in the service console.
+
+### 13b. Measuring signal quality, OSCAR and the learned detector
+
+**Labelled recording**, about 3.5 min per person, on the computer that
+reads the EEG (the server computer in the two-computer setup):
+
+```bash
+make artifacts PLAYER=anna EEG_HOST=172.20.10.2
+```
+
+The player follows the prompts:
+
+| Phase | Length | Instruction |
+|---|---|---|
+| still | 40 s | sit still |
+| eyes closed | 20 s | close the eyes |
+| blink | 20 s | blink on every BLINK cue |
+| jaw | 21 s | clench on every CLENCH cue |
+| head | 21 s | turn the head on every TURN cue |
+| talk | 20 s | talk normally |
+| play | 60 s | play as usual |
+
+It is saved as `sessions/artifacts-anna-<time>.npz`.
+
+**Numbers for any recording:** `make replay` analyses all protocol and
+raw recordings in `sessions/`. Or name files:
+`poetry run python -m eeg.replay A.npz B.npz [--vs-legacy]`. Per
+recording it shows:
+- usable % overall and per phase;
+- seconds per artifact type;
+- cue recall (did it see the cued blink, jaw clench and head turn?);
+- false alarms while still;
+- the eyes-closed alpha ratio (should stay ≥ 2).
+
+**OSCAR A/B.** g.tec's built-in artifact removal can't be run offline:
+it needs g.Pype's licence and the headset. So record the protocol twice
+per person:
+1. `make headset` on the headset computer, then `make artifacts PLAYER=anna`;
+2. `make headset ARGS=--oscar`, then `make artifacts PLAYER=anna OSCAR=1`;
+3. `make replay` compares the two.
+
+Use OSCAR only if it raises usable % in "play" without losing the
+eyes-closed alpha jump. Calibrate and play with the same setting.
+
+**Learned artifact detector.** `make train-artifacts` trains a
+scikit-learn classifier on all `artifacts-*.npz` (blink, jaw, head turn
+versus still) and compares it with the thresholds, testing each
+recording on a model trained on the others. It is saved as
+`sessions/artifact_model.joblib` **only if it is better**, which needs at
+least 2 recordings, ideally 2–3 people. The live pipeline and
+calibration then use it automatically (the service console says so).
+`BRAINCRAFT_ARTIFACT_MODEL=off` disables it. Bad contact stays a fixed
+rule. Recalibrate after switching detectors.
 
 ---
 
@@ -825,7 +897,7 @@ real Python once per project:
 
 ```powershell
 py -0p                                   # installed Pythons and their paths
-poetry env use (py -3.13 -c "import sys; print(sys.executable)")   # any 3.10-3.14
+poetry env use (py -3.13 -c "import sys; print(sys.executable)")   # any 3.11-3.14
 poetry install --with gpype
 ```
 

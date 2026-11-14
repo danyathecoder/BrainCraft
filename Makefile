@@ -21,7 +21,8 @@ START = $(RUN) start --eeg $(strip $(EEG)) --game $(strip $(GAME)) --mode $(stri
         $(HOSTARG) $(ARGS)
 HOSTARG = $(if $(strip $(EEG_HOST)),--eeg-host $(strip $(EEG_HOST)))
 
-.PHONY: help setup server doctor start dev demo-synthetic hud headset bridge check calibrate whitelist report test
+.PHONY: help setup server doctor start dev demo-synthetic hud headset bridge check calibrate \
+        artifacts train-artifacts replay whitelist report test
 
 help:            ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
@@ -61,6 +62,15 @@ check:           ## signal sanity check: close your eyes, alpha should jump
 
 calibrate:       ## new baseline for PLAYER
 	$(RUN) calibrate --player $(strip $(PLAYER)) --eeg $(strip $(EEG)) $(HOSTARG)
+
+artifacts:       ## labelled 3.5 min artifact recording for PLAYER (OSCAR=1 if the bridge runs --oscar)
+	$(RUN) artifacts --player $(strip $(PLAYER)) $(if $(strip $(OSCAR)),--oscar) $(HOSTARG)
+
+train-artifacts: ## train the artifact model on sessions/artifacts-*.npz (saved only if better)
+	$(RUN) train-artifacts $(ARGS)
+
+replay:          ## signal-quality numbers for all recordings; ARGS="--extra --vs-legacy"
+	$(RUN) replay $(ARGS)
 
 whitelist:       ## allow MC_NAME to join the running Minecraft server
 	$(RUN) whitelist $(MC_NAME)
