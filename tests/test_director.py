@@ -233,17 +233,47 @@ def test_status_fields():
 # --- fun mode -----------------------------------------------------------------
 
 
-def test_fun_escalates_when_calm():
+def test_fun_progresses_over_time_even_when_engaged():
     f = FunDirector(seed=1)
     f.start(0)
-    out = run_states(f, [st(eng=-1.0)] * 15)
-    assert "escalate" in [x.action for x in out] and f.level == 1
-    assert all_have_reasons(out)
-    for i in range(3):
-        run_states(f, [st(eng=-1.0)] * 15, t0=100 + 20 * i)
-    assert f.level == 4 and f.max_active == 3
-    out = run_states(f, [st(eng=-1.0)] * 15, t0=300)
-    assert {x.action for x in out} >= {"cave_sound", "darkness"}
+    levels, actions = [], []
+    for t in range(0, 400):
+        actions += [x.action for x in f.on_state(st(eng=1.5), t)]  # high engagement all along
+        levels.append(f.level)
+    assert [levels[t] for t in (0, 89, 90, 180, 270, 360)] == [0, 0, 1, 2, 3, 4]
+    assert actions.count("escalate") == 4 and "deescalate" not in actions
+    assert f.max_active == 3 and f.status()["base_level"] == 4 and f.boost == 0
+
+
+def test_fun_falling_engagement_boosts_difficulty():
+    f = FunDirector(seed=1)
+    f.start(0)
+    out = run_states(f, [st(eng=1.0)] * 60)  # stable, high
+    assert f.level == 0 and not any(x.action == "boost_up" for x in out)
+    out = run_states(f, [st(eng=0.4)] * 10, t0=60)  # 0.6 below its peak for 10 s
+    acts = [x.action for x in out]
+    assert acts[:2] == ["boost_up", "escalate"] and f.boost == 1 and f.level == 1
+    assert "fell 0.6" in out[0].reason and all_have_reasons(out)
+    # falls further after the 30 s cooldown -> +2, two levels above the time schedule
+    out = run_states(f, [st(eng=0.4)] * 20, t0=70) + run_states(f, [st(eng=-0.2)] * 12, t0=90)
+    assert f.boost == 2 and f.base_level == 1 and f.level == 3  # time 1 + boost 2
+    # staying low is not a recovery
+    assert not any(x.action == "boost_down" for x in run_states(f, [st(eng=0.0)] * 40, t0=102))
+    # back to where it was before the drops (1.0) for 30 s -> boost -1, then -1 again
+    out = run_states(f, [st(eng=0.9)] * 31, t0=142)
+    assert [x.action for x in out][:2] == ["boost_down", "deescalate"] and f.boost == 1
+    run_states(f, [st(eng=0.9)] * 31, t0=173)
+    assert f.boost == 0 and f.level == f.base_level
+
+
+def test_fun_short_or_noisy_drops_do_nothing():
+    f = FunDirector(seed=1)
+    f.start(0)
+    run_states(f, [st(eng=1.0)] * 30)
+    run_states(f, [st(eng=0.2)] * 8, t0=30)  # only 8 s
+    run_states(f, [st(eng=1.0)] * 5, t0=38)
+    run_states(f, [st(eng=0.2, quality="bad")] * 20, t0=43)  # bad seconds don't count
+    assert f.boost == 0 and f.level == 0
 
 
 def test_fun_breather_then_wave():
@@ -258,6 +288,19 @@ def test_fun_breather_then_wave():
     assert [x.action for x in out] == ["breather_end", "wave"]
     wave = f.due_spawns(33, 0)
     assert len(wave) == 5 and all(s.kind == "mob" for s in wave)
+
+
+def test_fun_breather_eases_boost_not_below_time_schedule():
+    f = FunDirector(seed=1)
+    f.start(0)
+    f.boost, f._boost_ref = 1, [1.0]
+    f.on_state(st(eng=1.0), 100)  # base 1 + boost 1
+    assert f.level == 2
+    out = []
+    for i in range(3):
+        out += f.on_trial_result("L", False, 101 + i)
+    assert out[0].action == "breather_start" and "boost 1 → 0" in out[0].reason
+    assert f.boost == 0 and f.level == 1  # back to the time schedule, not below
 
 
 def test_fun_flare_cooldown_and_fatigue_overload():
@@ -354,8 +397,7 @@ def test_bias_raises_left_share_of_spawns():
 
 def test_fun_spawns_several_at_higher_levels():
     f = FunDirector(seed=5)
-    f.start(0)
-    f.level = 4
+    f.start(-400)  # 400 s into the session: level 4
     kinds = set()
     t = 2.0
     for _ in range(200):

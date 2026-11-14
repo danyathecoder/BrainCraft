@@ -1,26 +1,34 @@
-"""Fun mode director: tension arcs. Pure logic, time passed in.
+"""Fun mode director: difficulty grows over time, faster when engagement falls.
 
-Goal: keep engagement_z in [-0.5, 1.0].
-  too calm (engagement_z < -0.5) for 15 s -> escalate one level:
-    faster spawns, several targets at once, wider angles, cave sounds,
-    skeletons with AI walking toward the player, sheep distractors (shooting a
-    sheep = false_tag), darkness
-  too hyped (engagement_z > 1.0) for 15 s -> ease off one level
+Pure logic, time passed in.
+
+  level = base level (from time) + boost (from the brain), 0..4
+    base level: +1 every `level_every_s` (90 s), so the game always
+      progresses, also for a player whose engagement stays high (it
+      did in real sessions: absolute z-scores are a poor trigger)
+    boost: +1 (max `max_boost`) when engagement is FALLING:
+      engagement_z at least `drop_z` (0.5) below its own peak of the
+      last `peak_window_s` (120 s) for `drop_hold_s` (10 good s), or
+      below `band_low` (-0.5) for `calm_hold_s` (15 good s);
+      `boost_cooldown_s` (30 s) between steps;
+      -1 when it recovers to within `recover_z` (0.2) of where it was
+      before the drop for `recover_hold_s` (30 good s)
+  higher level: faster spawns, several targets at once, wider angles,
+    walking enemies, sheep distractors (shooting a sheep = false_tag),
+    darkness, cave sounds
+  enemy tier = level (mc.enemies): skeleton -> stray -> bogged ->
+    pillager -> blaze; each spawn is the newest tier half the time,
+    otherwise a lower one; tougher enemies have more health, live longer
   overloaded (fatigue_z > 1.5 for 5 s, or 3 misses in a row)
-    -> 20 s breather (no spawns, darkness cleared), then a 5-mob wave
+    -> 20 s breather (no spawns, darkness cleared, boost -1), then a
+       5-mob wave
   jaw clench -> "flare": all targets glow for 5 s, 30 s cooldown
-
-Enemies (mc.enemies): skeleton -> stray -> bogged -> pillager -> blaze.
-The toughest allowed tier is min(level, time unlock): tier n unlocks
-`tier_unlock_s[n]` s into the session, so every game starts with
-skeletons and a bored player (level up) meets tougher enemies, but not
-before their time. Each spawn is the newest allowed tier half the time,
-otherwise a lower one. Tougher enemies have more health and live longer.
 """
 
 from __future__ import annotations
 
 import random
+from collections import deque
 from dataclasses import dataclass
 
 from contracts import BrainState
@@ -40,18 +48,25 @@ LEVELS = (
 LEVEL_TEXT = (
     "calm watch",
     "faster spawns, two targets at once, cave sounds",
-    "skeletons walk toward you, sheep distractors",
+    "enemies walk toward you, sheep distractors",
     "three targets at once, darkness",
     "maximum pace",
 )
+MAX_LEVEL = len(LEVELS) - 1
 
 
 @dataclass
 class FunParams:
-    band_low: float = -0.5
-    band_high: float = 1.0
+    level_every_s: float = 90.0  # base level +1 this often
+    max_boost: int = 2
+    peak_window_s: float = 120.0
+    drop_z: float = 0.5
+    drop_hold_s: float = 10.0
+    band_low: float = -0.5  # absolute "bored" level, also counts as falling
     calm_hold_s: float = 15.0
-    hype_hold_s: float = 15.0
+    recover_z: float = 0.2
+    recover_hold_s: float = 30.0
+    boost_cooldown_s: float = 30.0
     fatigue_z_threshold: float = 1.5
     fatigue_hold_s: float = 5.0
     miss_streak: int = 3
@@ -65,7 +80,6 @@ class FunParams:
     target_lifetime_s: float = config.TARGET_LIFETIME_S
     mob_lifetime_s: float = 14.0
     sheep_lifetime_s: float = 8.0
-    tier_unlock_s: tuple = (0.0, 90.0, 180.0, 270.0, 360.0)  # per mc.enemies.ROSTER
     newest_tier_share: float = 0.5
 
 
@@ -77,10 +91,16 @@ class FunDirector:
         self.p = params or FunParams()
         self.ecc = tuple(eccentricities)
         self.rng = random.Random(seed)
+        self.base_level = 0
+        self.boost = 0
         self.level = 0
+        self.drop_timer = HoldTimer(self.p.drop_hold_s)
         self.calm_timer = HoldTimer(self.p.calm_hold_s)
-        self.hype_timer = HoldTimer(self.p.hype_hold_s)
+        self.recover_timer = HoldTimer(self.p.recover_hold_s)
         self.fatigue_timer = HoldTimer(self.p.fatigue_hold_s)
+        self._eng: deque[tuple[float, float]] = deque()  # (t, engagement_z), good seconds
+        self._boost_ref: list[float] = []  # engagement before each boost step
+        self._last_boost: float | None = None
         self.misses_in_row = 0
         self.breather_until: float | None = None
         self.last_breather_end: float | None = None
@@ -118,31 +138,106 @@ class FunDirector:
             "p_left": 0.5,
             "left_ecc_deg": self.max_ecc_deg,
             "level": self.level,
+            "base_level": self.base_level,
+            "boost": self.boost,
             "enemy_tier": self.enemy_tier,
             "enemy": E.ROSTER[self.enemy_tier].key,
         }
 
-    # --- enemies --------------------------------------------------------
+    # --- level: time baseline + engagement boost --------------------------
 
-    def unlocked_tier(self, now: float) -> int:
-        if self._t0 is None:
-            return 0
-        el = now - self._t0
-        n = sum(1 for t in self.p.tier_unlock_s if el >= t) - 1
-        return max(0, min(n, len(E.ROSTER) - 1))
+    def _minutes(self, now: float) -> float:
+        return (now - self._t0) / 60 if self._t0 is not None else 0.0
 
-    def _sync_tier(self, now: float) -> list[Decision]:
-        unlocked = self.unlocked_tier(now)
-        self.enemy_tier = min(self.level, unlocked)
-        if self.enemy_tier <= self._announced_tier:
+    def _sync_level(self, now: float, cause: str | None = None) -> list[Decision]:
+        """Recompute level and enemy tier; decisions for every change."""
+        out: list[Decision] = []
+        if self._t0 is not None:
+            self.base_level = min(int((now - self._t0) // self.p.level_every_s), MAX_LEVEL)
+        old, new = self.level, min(self.base_level + self.boost, MAX_LEVEL)
+        if new != old:
+            self.level = new
+            why = cause or f"{self._minutes(now):.1f} min in"
+            if new > old:
+                out.append(Decision("escalate", {"level": new, "base_level": self.base_level,
+                                                 "boost": self.boost,
+                                                 "spawn_interval_s": self.spawn_interval_s,
+                                                 "max_active": self.max_active},
+                                    reason=f"{why} → level {old} → {new}: {LEVEL_TEXT[new]}"))
+                out.append(Decision("cave_sound", {}, reason=f"level {new} → cave sounds"))
+                if LEVELS[new][5]:
+                    out.append(Decision("darkness", {"seconds": self.p.darkness_s},
+                                        reason=f"level {new} → darkness for {self.p.darkness_s} s"))
+            else:
+                out.append(Decision("deescalate", {"level": new, "base_level": self.base_level,
+                                                   "boost": self.boost},
+                                    reason=f"{why} → level {old} → {new}"))
+                if LEVELS[old][5] and not LEVELS[new][5]:
+                    out.append(Decision("clear_darkness", {}, reason=f"level {new} has no darkness"))
+        self.enemy_tier = min(self.level, len(E.ROSTER) - 1)
+        if self.enemy_tier > self._announced_tier:
+            self._announced_tier = self.enemy_tier
+            e = E.ROSTER[self.enemy_tier]
+            out.append(Decision("enemy_unlock", {"enemy": e.key, "label": e.label,
+                                                 "threat": e.threat, "tier": self.enemy_tier},
+                                reason=(f"level {self.level} ({self._minutes(now):.1f} min in) → "
+                                        f"new enemy: {e.label} ({e.threat}, {e.health:g} HP)")))
+        return out
+
+    def _engagement(self, state: BrainState, now: float, ok: bool) -> list[Decision]:
+        """Boost difficulty when engagement falls; ease it when it recovers."""
+        z = state.engagement_z
+        if ok:
+            self._eng.append((now, z))
+        while self._eng and now - self._eng[0][0] > self.p.peak_window_s:
+            self._eng.popleft()
+        peak = max((v for _, v in self._eng), default=z)
+        drop = peak - z
+        dropping = self.drop_timer.update(drop >= self.p.drop_z, now, ok)
+        calm = self.calm_timer.update(z < self.p.band_low, now, ok)
+        ref = self._boost_ref[-1] if self._boost_ref else None
+        recovered = self.recover_timer.update(
+            ref is not None and z >= ref - self.p.recover_z, now, ok and ref is not None)
+        if not ok:
             return []
-        self._announced_tier = self.enemy_tier
-        e = E.ROSTER[self.enemy_tier]
-        minutes = (now - self._t0) / 60 if self._t0 is not None else 0
-        return [Decision("enemy_unlock", {"enemy": e.key, "label": e.label, "threat": e.threat,
-                                          "tier": self.enemy_tier},
-                         reason=(f"level {self.level} and {minutes:.1f} min in → new enemy: "
-                                 f"{e.label} ({e.threat}, {e.health:g} HP)"))]
+        cooled = self._last_boost is None or now - self._last_boost >= self.p.boost_cooldown_s
+        if (dropping or calm) and cooled:
+            for t in (self.drop_timer, self.calm_timer, self.recover_timer):
+                t.reset()
+            self._last_boost = now
+            if dropping:
+                why = (f"engagement fell {drop:.1f} below its {self.p.peak_window_s / 60:g}-min "
+                       f"peak ({peak:+.1f} → {z:+.1f})")
+            else:
+                why = f"engagement_z < {self.p.band_low:g} for {self.p.calm_hold_s:g} s (now {z:+.1f})"
+            self._eng.clear()  # the next step needs a fresh drop from here
+            self._eng.append((now, z))
+            if self.boost >= self.p.max_boost or self.base_level + self.boost >= MAX_LEVEL:
+                out = [Decision("cave_sound", {}, reason=f"{why} at max difficulty → cave sounds")]
+                if LEVELS[self.level][5]:
+                    out.append(Decision("darkness", {"seconds": self.p.darkness_s},
+                                        reason=f"{why} at max difficulty → darkness"))
+                return out
+            # Recover = back near where engagement was before it started to
+            # fall: never below an earlier step's level, and at least out of
+            # the absolute "bored" band.
+            ref = max([peak, self.p.band_low + self.p.recover_z, *self._boost_ref])
+            self._boost_ref.append(ref)
+            self.boost += 1
+            return [Decision("boost_up", {"boost": self.boost, "drop": round(drop, 2)},
+                             reason=f"{why} → harder: +{self.boost} level above the time schedule")
+                    ] + self._sync_level(now, cause=f"engagement falling (boost +{self.boost})")
+        if recovered and self.boost > 0:
+            self.recover_timer.reset()
+            self.boost -= 1
+            self._boost_ref.pop()
+            return [Decision("boost_down", {"boost": self.boost},
+                             reason=(f"engagement back to {z:+.1f} (≥ {ref - self.p.recover_z:+.1f}) "
+                                     f"for {self.p.recover_hold_s:g} s → boost {self.boost}"))
+                    ] + self._sync_level(now, cause="engagement recovered")
+        return []
+
+    # --- enemies --------------------------------------------------------
 
     def _pick_enemy(self) -> E.Enemy:
         top = self.enemy_tier
@@ -157,8 +252,9 @@ class FunDirector:
         if self._t0 is None:  # a mode switch back keeps the session clock
             self._t0 = now
         return [Decision("fun_start", {"level": self.level},
-                         reason=f"fun mode: keep engagement_z in [{self.p.band_low:g}, "
-                                f"{self.p.band_high:g}], level {self.level} ({LEVEL_TEXT[self.level]})")]
+                         reason=(f"fun mode: level {self.level} ({LEVEL_TEXT[self.level]}); "
+                                 f"+1 level every {self.p.level_every_s:g} s, more when "
+                                 f"engagement falls"))]
 
     def _drain(self) -> list[Decision]:
         out, self._pending = self._pending, []
@@ -176,7 +272,7 @@ class FunDirector:
 
     def on_state(self, state: BrainState, now: float) -> list[Decision]:
         out = self._drain()
-        out += self._sync_tier(now)
+        out += self._sync_level(now)
         if state.jaw_clench and (self.last_flare is None
                                  or now - self.last_flare >= self.p.flare_cooldown_s):
             self.last_flare = now
@@ -188,46 +284,13 @@ class FunDirector:
                 out += self._end_breather(now)
             return out
         ok = state.quality == "ok"
-        calm = self.calm_timer.update(state.engagement_z < self.p.band_low, now, ok)
-        hype = self.hype_timer.update(state.engagement_z > self.p.band_high, now, ok)
         tired = self.fatigue_timer.update(state.fatigue_z > self.p.fatigue_z_threshold, now, ok)
         if tired and self._may_overload(now):
             out += self._start_breather(
                 now, f"fatigue_z > {self.p.fatigue_z_threshold:g} for {self.p.fatigue_hold_s:g} s "
                      f"(now {state.fatigue_z:+.1f})")
-        elif calm:
-            self.calm_timer.reset()
-            out += self._escalate(state)
-        elif hype:
-            self.hype_timer.reset()
-            if self.level > 0:
-                old = self.level
-                self.level -= 1
-                out.append(Decision("deescalate", {"level": self.level},
-                                    reason=f"engagement_z > {self.p.band_high:g} for "
-                                           f"{self.p.hype_hold_s:g} s (now {state.engagement_z:+.1f}) "
-                                           f"→ ease off, level {old} → {self.level}"))
-                if not LEVELS[self.level][5] and LEVELS[old][5]:
-                    out.append(Decision("clear_darkness", {}, reason=f"level {self.level} has no darkness"))
-        return out
-
-    def _escalate(self, state: BrainState) -> list[Decision]:
-        why = (f"engagement_z < {self.p.band_low:g} for {self.p.calm_hold_s:g} s "
-               f"(now {state.engagement_z:+.1f})")
-        out = []
-        if self.level < len(LEVELS) - 1:
-            old = self.level
-            self.level += 1
-            out.append(Decision("escalate", {"level": self.level, "spawn_interval_s": self.spawn_interval_s,
-                                             "max_active": self.max_active},
-                                reason=f"{why} → escalate level {old} → {self.level}: "
-                                       f"{LEVEL_TEXT[self.level]}"))
-        else:
-            why += " at max level"
-        out.append(Decision("cave_sound", {}, reason=f"{why} → cave sounds"))
-        if LEVELS[self.level][5]:
-            out.append(Decision("darkness", {"seconds": self.p.darkness_s},
-                                reason=f"{why} → darkness for {self.p.darkness_s} s"))
+            return out
+        out += self._engagement(state, now, ok)
         return out
 
     def _may_overload(self, now: float) -> bool:
@@ -238,14 +301,17 @@ class FunDirector:
     def _start_breather(self, now: float, why: str) -> list[Decision]:
         self.breather_until = now + self.p.breather_s
         self.misses_in_row = 0
-        old = self.level
-        self.level = max(self.level - 1, 0)
-        for t in (self.calm_timer, self.hype_timer, self.fatigue_timer):
+        for t in (self.drop_timer, self.calm_timer, self.recover_timer, self.fatigue_timer):
             t.reset()
-        lvl = f", level {old} → {self.level}" if old != self.level else ""
-        return [Decision("breather_start", {"duration_s": self.p.breather_s, "level": self.level},
-                         reason=f"overloaded: {why} → {self.p.breather_s:g} s breather{lvl}, "
-                                f"then a {self.p.wave_size}-mob wave")]
+        eased = ""
+        if self.boost > 0:  # ease off, but never below the time schedule
+            self.boost -= 1
+            self._boost_ref.pop()
+            eased = f", boost {self.boost + 1} → {self.boost}"
+        out = [Decision("breather_start", {"duration_s": self.p.breather_s, "boost": self.boost},
+                        reason=f"overloaded: {why} → {self.p.breather_s:g} s breather{eased}, "
+                               f"then a {self.p.wave_size}-mob wave")]
+        return out + self._sync_level(now, cause="overloaded")
 
     def _end_breather(self, now: float) -> list[Decision]:
         self.breather_until = None
@@ -253,7 +319,7 @@ class FunDirector:
         self.pending_wave = self.p.wave_size
         return [Decision("breather_end", {}, reason=f"{self.p.breather_s:g} s breather over"),
                 Decision("wave", {"n": self.p.wave_size},
-                         reason=f"breather over → wave of {self.p.wave_size} skeletons walking toward you")]
+                         reason=f"breather over → wave of {self.p.wave_size} enemies walking toward you")]
 
     def due_spawns(self, now: float, n_active: int) -> list[SpawnSpec]:
         if self._next_spawn is None:
@@ -262,7 +328,7 @@ class FunDirector:
             return []
         if self._t0 is None:
             self._t0 = now
-        self._pending.extend(self._sync_tier(now))
+        self._pending.extend(self._sync_level(now))
         if self.pending_wave:
             n, self.pending_wave = self.pending_wave, 0
             self._next_spawn = now + self.spawn_interval_s

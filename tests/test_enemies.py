@@ -31,30 +31,28 @@ def _fun(**kw):
     return FunDirector(params=FunParams(lead_in_s=0, **kw), seed=1)
 
 
-def test_tier_is_min_of_level_and_time():
+def test_enemy_tier_follows_level_time_and_boost():
     d = _fun()
     d.start(0)
-    d.level = 4  # bored player, but only 60 s in
-    d.on_state(BrainState(t=60), 60)
+    d.on_state(BrainState(t=60, engagement_z=1.0), 60)
     assert d.enemy_tier == 0
-    out = d.on_state(BrainState(t=95), 95)  # 90 s: strays unlock
-    assert d.enemy_tier == 1 and [x.action for x in out] == ["enemy_unlock"]
-    assert "Strays" in out[0].reason and "slow you" in out[0].reason
-    d.level = 1
-    d.on_state(BrainState(t=600), 600)  # everything unlocked, but level 1
-    assert d.enemy_tier == 1
-    d.level = 4
-    out = d.on_state(BrainState(t=601), 601)
-    assert d.enemy_tier == 4 and out[0].params["enemy"] == "blaze"
-    d.level = 0
-    assert d.on_state(BrainState(t=602), 602) == [] and d.enemy_tier == 0  # no re-announce
+    out = d.on_state(BrainState(t=95, engagement_z=1.0), 95)  # 90 s: level 1 -> strays
+    assert d.enemy_tier == 1 and "enemy_unlock" in [x.action for x in out]
+    unlock = next(x for x in out if x.action == "enemy_unlock")
+    assert "Strays" in unlock.reason and "slow you" in unlock.reason
+    d.boost, d._boost_ref = 2, [1.0, 1.0]  # falling engagement: two tiers early
+    out = d.on_state(BrainState(t=96, engagement_z=1.0), 96)
+    assert d.enemy_tier == 3 and out[-1].params["enemy"] == "pillager"
+    d.boost, d._boost_ref = 0, []
+    d.on_state(BrainState(t=97, engagement_z=1.0), 97)
+    assert d.enemy_tier == 1  # back down, no re-announce later
+    assert not any(x.action == "enemy_unlock" for x in d.on_state(BrainState(t=200), 200))
 
 
 def test_spawns_mix_newest_tier_with_lower_ones():
     d = _fun()
     d.start(0)
-    d.level = 4
-    d.on_state(BrainState(t=400), 400)
+    d.on_state(BrainState(t=400), 400)  # 400 s: level 4, blazes
     kinds = collections.Counter()
     t = 400.0
     for _ in range(2000):
@@ -68,14 +66,16 @@ def test_spawns_mix_newest_tier_with_lower_ones():
     assert {"skeleton", "stray", "bogged", "pillager"} <= set(kinds)
 
 
-def test_level0_session_stays_skeletons():
+def test_engaged_session_still_meets_every_enemy():
     d = _fun()
     d.start(0)
-    seen = set()
-    for t in range(0, 900, 2):
-        d.on_state(BrainState(t=t, engagement_z=0.2), t)  # engaged: no escalation
-        seen |= {s.enemy for s in d.due_spawns(t, 0) if s.kind != "sheep"}
-    assert seen == {"skeleton"} and d.status()["enemy"] == "skeleton"
+    seen = []
+    for t in range(0, 420, 2):
+        d.on_state(BrainState(t=t, engagement_z=1.5), t)  # never bored
+        for s in d.due_spawns(t, 0):
+            if s.kind != "sheep" and s.enemy not in seen:
+                seen.append(s.enemy)
+    assert seen == ["skeleton", "stray", "bogged", "pillager", "blaze"]
 
 
 def test_bow_commands_per_mode():
@@ -131,7 +131,8 @@ def test_sim_fun_session_logs_enemy_progression(tmp_path):
     order = [u["value"].split("enemy=")[1].split()[0] for u in unlocks]
     assert order == ["stray", "bogged", "pillager", "blaze"]
     first_unlock = float(unlocks[0]["t"]) - 1_800_000_000.0
-    assert 90 <= first_unlock < 100
+    assert first_unlock < 90  # bored player: boosted ahead of the time schedule
+    assert any(e["value"].startswith("boost_up") for e in events if e["event"] == "decision")
     assert any(e["event"] == "spawn" and e["value"].endswith(":blaze") for e in events)
     assert any(c.startswith("summon minecraft:pillager") for c in rcon.commands)
 
