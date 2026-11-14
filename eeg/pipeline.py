@@ -13,8 +13,10 @@
 
 BrainState semantics:
 - *_z: smoothed z-scores vs the baseline (log10 indices, see eeg.features);
-- ali: smoothed raw alpha lateralization (PO7 vs PO8), not a z-score;
-  0 is symmetric, negative means more alpha at PO8 than PO7;
+- ali: smoothed alpha lateralization (PO7 vs PO8) minus the player's
+  calibration mean (0 = their own resting balance; negative = more alpha
+  at PO8 than usual, i.e. attention drifting right). Not a z-score. Held
+  while PO7 or PO8 is flagged bad;
 - artifact: artifact in the newest second ("none"|"blink"|"jaw"|"motion");
 - jaw_clench: artifact == "jaw" (usable as a deliberate trigger);
 - quality "bad": artifact now, a jaw/motion still inside the 4 s window,
@@ -46,7 +48,7 @@ from eeg.calibrate import (
     quick_baseline,
     run_calibration,
 )
-from eeg.features import ANALYZER_VERSION, Analyzer, ali as ali_index
+from eeg.features import ANALYZER_VERSION, Analyzer, ali as ali_index, ali_ok
 from eeg.stream import EEGStream, StreamNotFound
 
 log = logging.getLogger("eeg.pipeline")
@@ -171,7 +173,8 @@ def run(
         alpha = 1.0 - math.exp(-period / ema_s) if ema_s > 0 else 1.0
         smooth: dict[str, float] | None = None
         held = dict(zero)
-        n_ok = 0
+        n_ok = n_ali = 0
+        ali_ref = float(baseline.mean.get("ali", 0.0))  # 0 for older baselines
         while not stop.wait(period):
             try:
                 if stream.seconds_since_data > STALE_S:
@@ -181,8 +184,9 @@ def run(
                 res = analyzer.step(eeg, gyro)
                 if res.ok and res.bp is not None:
                     z = {Z_FIELDS[k]: baseline.z(k, v) for k, v in res.indices.items()}
-                    raw_ali = ali_index(res.bp)
-                    if not all(math.isfinite(v) for v in z.values()) or not math.isfinite(raw_ali):
+                    raw_ali = (ali_index(res.bp) - ali_ref) if ali_ok(res) else None
+                    if not all(math.isfinite(v) for v in z.values()) or (
+                            raw_ali is not None and not math.isfinite(raw_ali)):
                         raise ValueError(f"non-finite scores {z} ali={raw_ali}")
                     # EMA; the first ~ema_s seconds use the running mean
                     # instead, so the very first window doesn't dominate.
@@ -190,7 +194,12 @@ def run(
                     a = max(alpha, 1.0 / n_ok)
                     smooth = z if smooth is None else {
                         k: smooth[k] + a * (z[k] - smooth[k]) for k in z}
-                    ali_s = raw_ali if n_ok == 1 else held["ali"] + a * (raw_ali - held["ali"])
+                    if raw_ali is None:  # PO7/PO8 bad: keep the last ALI
+                        ali_s = held["ali"]
+                    else:
+                        n_ali += 1
+                        ali_s = raw_ali if n_ali == 1 else held["ali"] + max(alpha, 1.0 / n_ali) * (
+                            raw_ali - held["ali"])
                     held = {**smooth, "ali": ali_s}
                     # The window is usable even with an artifact in its newest
                     # second (those segments were left out), so report it:

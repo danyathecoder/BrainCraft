@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from eeg.features import ANALYZER_VERSION, INDEX_NAMES, Analyzer
+from eeg.features import ANALYZER_VERSION, INDEX_NAMES, Analyzer, ali, ali_ok
 
 EMA_SECONDS = 15.0  # smoothing of z-scores
 DEFAULT_BASELINE = Path(__file__).resolve().parent.parent / "sessions" / "baseline.json"
@@ -146,6 +146,7 @@ def run_calibration(
         raise CalibrationError("no EEG data arriving; check the stream")
 
     samples: dict[str, list[float]] = {k: [] for k in INDEX_NAMES}
+    ali_samples: list[float] = []
     alpha: dict[str, list[float]] = {"rest": [], "eyes_closed": []}
     skipped = 0
     for (phase, text), duration in zip(PHASES, durations):
@@ -183,6 +184,8 @@ def run_calibration(
             if phase != "eyes_closed":
                 for name in INDEX_NAMES:
                     samples[name].append(res.indices[name])
+                if ali_ok(res):
+                    ali_samples.append(ali(res.bp))
     if gen is not None:
         gen.eyes_closed = False
 
@@ -196,6 +199,8 @@ def run_calibration(
     else:
         prompt(f"[calibration] WARNING: no clear eyes-closed alpha jump (x{ratio:.2f}, "
                f"want >= x{ALPHA_JUMP_MIN:g}); check electrodes / channel layout")
+    if len(ali_samples) >= 2:  # optional: PO7/PO8 may be bad all the time
+        samples["ali"] = ali_samples
     try:
         base = compute_baseline(samples, meta={
             "alpha_check": check,
@@ -243,6 +248,7 @@ def quick_baseline(
     prompt(f"[calibration] skipped: quick baseline from the next {seconds} clean seconds "
            "(sit still or play normally)")
     samples: dict[str, list[float]] = {k: [] for k in INDEX_NAMES}
+    ali_samples: list[float] = []
     start, tick, skipped = stream.total_samples, 0, 0
     deadline = time.monotonic() + QUICK_TIMEOUT_S / max(getattr(stream, "speed", 1), 1)
     while len(samples[INDEX_NAMES[0]]) < seconds:
@@ -266,6 +272,10 @@ def quick_baseline(
             continue
         for name in INDEX_NAMES:
             samples[name].append(res.indices[name])
+        if ali_ok(res):
+            ali_samples.append(ali(res.bp))
+    if len(ali_samples) >= 2:
+        samples["ali"] = ali_samples
     try:
         base = compute_baseline(samples, meta={
             "quick": True, "skipped_seconds": skipped, "created": time.time(),

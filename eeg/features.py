@@ -10,8 +10,9 @@ logs give symmetric, better-behaved z-scores; the ordering is the same):
   engagement = mean over Fz, Cz of log10(beta / (alpha + theta))
   fatigue    = log10((theta + alpha) / beta) at Fz
   alpha_low  = log10(mean 8-10 Hz power at Pz and Oz)
-  ali        = (alpha PO7 - alpha PO8) / (alpha PO7 + alpha PO8)
-               raw, in about [-1, 1], not z-scored and not part of the baseline
+  ali        = (alpha PO7 - alpha PO8) / (alpha PO7 + alpha PO8), in about
+               [-1, 1]. Calibration stores its mean; the pipeline publishes
+               ALI minus that mean (0 = the player's own resting balance)
 
 Windows are analysed in 1 s segments (SEGMENT_S): each segment gets an
 artifact label, and band powers come from the clean segments only, so
@@ -145,6 +146,13 @@ def ali(bp: dict[str, np.ndarray]) -> float:
     """
     po7, po8 = _ch(bp, "alpha", "PO7", "PO8")
     return float((po7 - po8) / (po7 + po8 + _EPS))
+
+
+def ali_ok(res: WindowResult) -> bool:
+    """True if PO7 and PO8 are usable in this window (ALI needs both)."""
+    if not res.channels:  # legacy analysis: no channel check
+        return True
+    return all(res.channels[CH[c]] == "ok" for c in ("PO7", "PO8"))
 
 
 def posterior_alpha(bp: dict[str, np.ndarray], bad: frozenset[str] | set[str] = frozenset()) -> float:

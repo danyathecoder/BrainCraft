@@ -233,7 +233,8 @@ def test_run_calibration_synthetic():
     with EEGStream("synthetic", seed=8, speed=60) as s:
         base = run_calibration(s, prompt=msgs.append, durations=(12, 10, 12))
     assert base is not None
-    assert set(base.mean) == set(F.INDEX_NAMES)
+    assert set(base.mean) == set(F.INDEX_NAMES) | {"ali"}  # ALI mean: the player's resting balance
+    assert abs(base.mean["ali"]) < 0.5
     assert base.meta["alpha_check"]["seen"]
     assert base.meta["alpha_check"]["ratio"] > 3
     assert any("alpha jump OK" in m for m in msgs)
@@ -323,3 +324,20 @@ def test_pipeline_survives_bad_windows(tmp_path):
         stream.stop()
     assert not th.is_alive()
     assert states and all(st.quality == "bad" for st in states)
+
+
+def test_pipeline_ali_is_relative_to_the_baseline(tmp_path):
+    base = _baseline_for(9)
+    base.mean["ali"], base.std["ali"] = 0.5, 0.1  # pretend this player rests at +0.5
+    base.save(tmp_path / "baseline.json")
+    states, th = _run_pipeline(tmp_path, 1.2)
+    ok = [s for s in states if s.quality == "ok"]
+    assert ok and -0.8 < ok[-1].ali < -0.2  # synthetic is ~symmetric: 0 - 0.5
+
+
+def test_ali_needs_both_po_channels():
+    res = F.WindowResult({}, "none", False, channels=["ok"] * 8)
+    assert F.ali_ok(res)
+    res.channels[F.CH["PO8"]] = "noisy"
+    assert not F.ali_ok(res)
+    assert F.ali_ok(F.WindowResult({}, "none", False))  # legacy: no channel info
