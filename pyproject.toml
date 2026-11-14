@@ -10,7 +10,6 @@ dependencies = [
     "pylsl",
     "fastapi",
     "uvicorn",
-    "mcrcon",
     "pandas",
     "plotly",
 ]

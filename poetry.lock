@@ -243,17 +243,6 @@ files = [
 ]
 
 [[package]]
-name = "mcrcon"
-version = "0.7.0"
-description = "A client for handling Remote Commands (RCON) to a Minecraft server."
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "mcrcon-0.7.0.tar.gz", hash = "sha256:c2f1caf2467e283e0ccd2436f1ce21f04242b03c5fafb3860e3924d764a910d4"},
-]
-
-[[package]]
 name = "narwhals"
 version = "2.28.0"
 description = "Extremely lightweight compatibility layer between dataframe libraries"
@@ -1470,4 +1459,4 @@ standard = ["httptools (>=0.8.0)", "python-dotenv (>=0.13)", "pyyaml (>=5.1)", "
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.15"
-content-hash = "c09d8d76a7718d5bb8feeadc8fb5df2d035aaf2013cad88e14c60cb7870c2b2a"
+content-hash = "b3ea54312431107c45c25d80c79d62e3e1fd76f8f0efce1b32aa932ba7da8733"
