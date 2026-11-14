@@ -185,6 +185,8 @@ class Effects:
         for c in lock_movement_cmds(p):
             self.cmd(c)
         self.cmd(f"give {p} minecraft:arrow 64")
+        self.cmd(f"xp set {p} 0 levels")  # the XP bar is this session's score
+        self.cmd(f"xp set {p} 0 points")
         self.give_bow(mode)
         self.cmd(subtitle_cmd(_MODE_SUBTITLE.get(mode, mode), player=p))
         self.cmd(title_cmd("BrainCraft", "gold", player=p))
@@ -245,8 +247,13 @@ class Effects:
     # trial feedback ------------------------------------------------------
 
     def hit(self, target=None) -> None:
+        """Kill: sound + XP as the visible score (more for tougher enemies)."""
+        from mc import enemies
+
+        xp = enemies.kill_xp(getattr(target, "enemy", None), getattr(target, "kind", "target"))
         self.cmd(sound_at_player_cmd(HIT_SOUND, 1, 1.2, player=self.player))
-        self.cmd(actionbar_cmd("+1", "green", player=self.player))
+        self.cmd(f"xp add {self.player} {xp} points")
+        self.cmd(actionbar_cmd(f"+{xp} XP", "green", player=self.player))
 
     def miss(self, target) -> None:
         x, y, z = target.pos
@@ -254,8 +261,12 @@ class Effects:
         self.cmd(sound_at_cmd(MISS_SOUND, x, y, z, volume=2, pitch=0.6, player=self.player))
 
     def false_tag(self, target=None) -> None:
+        from mc import enemies
+
         self.cmd(sound_at_player_cmd(FALSE_TAG_SOUND, 1, 1, player=self.player))
-        self.cmd(actionbar_cmd("-1  sheep are friends!", "red", player=self.player))
+        self.cmd(f"xp add {self.player} -{enemies.SHEEP_XP_PENALTY} points")
+        self.cmd(actionbar_cmd(f"-{enemies.SHEEP_XP_PENALTY} XP  sheep are friends!", "red",
+                               player=self.player))
 
     def echo(self, decision) -> None:
         """Mirror every director decision in-game."""

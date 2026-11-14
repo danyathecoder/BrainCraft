@@ -134,3 +134,28 @@ def test_sim_fun_session_logs_enemy_progression(tmp_path):
     assert 90 <= first_unlock < 100
     assert any(e["event"] == "spawn" and e["value"].endswith(":blaze") for e in events)
     assert any(c.startswith("summon minecraft:pillager") for c in rcon.commands)
+
+
+def test_kill_xp_and_effects():
+    from game.trials import Target
+
+    assert [E.kill_xp(e.key) for e in E.ROSTER] == [5, 10, 15, 25, 40]
+    assert E.kill_xp("blaze", "mob") == 60 and E.kill_xp(None) == 5
+
+    class R:
+        def __init__(self):
+            self.sent = []
+
+        def cmd(self, c):
+            self.sent.append(c)
+            return ""
+
+    r = R()
+    fx = effects.Effects(r)
+    fx.hit(Target("t1", "L", 35, 0.0, kind="target", enemy="pillager"))
+    assert "xp add @p 25 points" in r.sent and any("+25 XP" in c for c in r.sent)
+    fx.false_tag()
+    assert "xp add @p -10 points" in r.sent
+    r.sent.clear()
+    fx.session_start("fun")
+    assert "xp set @p 0 levels" in r.sent and "xp set @p 0 points" in r.sent

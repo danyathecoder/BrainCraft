@@ -33,6 +33,7 @@ class Enemy:
     weapon: str | None  # main-hand item id, or None
     burns: bool  # undead: needs the helmet against daylight
     lifetime_s: float  # fun mode: time before it counts as a miss
+    xp: int  # experience points for a kill (the XP bar is the score)
 
     @property
     def gear_nbt(self) -> str:
@@ -49,15 +50,25 @@ class Enemy:
 
 
 ROSTER: tuple[Enemy, ...] = (
-    Enemy("skeleton", "minecraft:skeleton", "Skeletons", "arrows", 1, "minecraft:bow", True, 6.0),
-    Enemy("stray", "minecraft:stray", "Strays", "their arrows slow you", 6, "minecraft:bow", True, 8.0),
-    Enemy("bogged", "minecraft:bogged", "Bogged", "their arrows poison you", 10, "minecraft:bow", True, 9.0),
+    Enemy("skeleton", "minecraft:skeleton", "Skeletons", "arrows", 1, "minecraft:bow", True, 6.0, 5),
+    Enemy("stray", "minecraft:stray", "Strays", "their arrows slow you", 6, "minecraft:bow", True,
+          8.0, 10),
+    Enemy("bogged", "minecraft:bogged", "Bogged", "their arrows poison you", 10, "minecraft:bow",
+          True, 9.0, 15),
     Enemy("pillager", "minecraft:pillager", "Pillagers", "crossbow bolts hit harder", 16,
-          "minecraft:crossbow", False, 10.0),
-    Enemy("blaze", "minecraft:blaze", "Blazes", "fireballs set you on fire", 20, None, False, 12.0),
+          "minecraft:crossbow", False, 10.0, 25),
+    Enemy("blaze", "minecraft:blaze", "Blazes", "fireballs set you on fire", 20, None, False, 12.0, 40),
 )
 BY_KEY = {e.key: e for e in ROSTER}
 DEFAULT = "skeleton"
+MOB_XP_BONUS = 1.5  # a walking enemy is harder to hit
+SHEEP_XP_PENALTY = 10  # shooting a sheep distractor
+
+
+def kill_xp(enemy_key: str | None, kind: str = "target") -> int:
+    """XP for a kill: per enemy, x1.5 for one that walks in."""
+    xp = get(enemy_key).xp
+    return int(round(xp * MOB_XP_BONUS)) if kind == "mob" else xp
 
 
 def get(key: str | None) -> Enemy:

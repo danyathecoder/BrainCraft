@@ -65,6 +65,11 @@ effect, because it healed the player too fast to ever die:
 - **hit:** the target disappeared before its lifetime ended (shot). Its `rt_ms` is the time to hit, accurate to half a poll.
 - **miss:** the lifetime ran out, and the target is removed with smoke and a low sound.
 - **false tag:** a sheep was shot.
+- **XP is the visible score** (the player's XP bar and level, reset at
+  session start). Each kill gives XP: skeleton 5, stray 10, bogged 15,
+  pillager 25, blaze 40, ×1.5 for an enemy that walks in. A sheep costs
+  10 XP. The action bar shows `+25 XP`. Values are in `mc/enemies.py`
+  (`xp`, `MOB_XP_BONUS`, `SHEEP_XP_PENALTY`).
 - **cued** targets glow and play a sound at their position, repeated once after 2 s if not yet found.
 
 Every **decision** carries a human-readable reason. It is shown in the
@@ -289,6 +294,7 @@ The report is a training summary, not a diagnostic assessment.
 | when tougher enemies unlock | `FunParams.tier_unlock_s` (0, 90, 180, 270, 360 s), `newest_tier_share` |
 | enemy health / lifetime / roster | `mc/enemies.py` `ROSTER` |
 | fun bow enchantments | `game/effects.py` `FUN_BOW_ENCHANTMENTS` |
+| XP per kill / sheep penalty | `mc/enemies.py` `xp`, `MOB_XP_BONUS`, `SHEEP_XP_PENALTY` |
 
 Test any change without hardware first:
 `poetry run python game_loop.py --mode rehab --sim --no-service --duration 600 --speed 0`.
