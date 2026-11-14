@@ -1,7 +1,7 @@
 # BrainCraft shortcuts. Every target wraps scripts/braincraft.py, so
 # without `make` (e.g. plain Windows) run the line under the target by
 # hand, e.g. `poetry run python scripts/braincraft.py start --eeg gpype`.
-# Variables: make start PLAYER=anna MODE=fun EEG=unicorn
+# Variables: make start PLAYER=diuna MODE=fun EEG=unicorn
 
 PY      := poetry run python
 RUN     := $(PY) scripts/braincraft.py

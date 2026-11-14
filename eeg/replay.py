@@ -1,6 +1,6 @@
 """Replay recordings through the EEG analysis and compare (P1).
 
-    python -m eeg.replay sessions/artifacts-anna-*.npz            # labelled protocol
+    python -m eeg.replay sessions/artifacts-diuna-*.npz            # labelled protocol
     python -m eeg.replay sessions/raw-headset-*.csv               # raw bridge recording
     python -m eeg.replay A.npz B.npz                              # e.g. OSCAR off vs on
     python -m eeg.replay A.npz --vs-legacy                        # old vs new analysis

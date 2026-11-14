@@ -27,17 +27,17 @@ make setup                 # poetry install + g.Pype group
 make setup ACCEPT_EULA=1   # ... and the Minecraft 26.3 server (accepts https://aka.ms/MinecraftEULA)
 make doctor                # what's installed / running (Java, server, LSL streams, baselines)
 
-make start PLAYER=anna            # one computer: bridge -> calibration (first time) -> service -> HUD -> Minecraft -> game
-make start PLAYER=anna OSCAR=1    # same with g.tec OSCAR in the bridge (use a separate PLAYER name, e.g. anna-oscar)
+make start PLAYER=diuna            # one computer: bridge -> calibration (first time) -> service -> HUD -> Minecraft -> game
+make start PLAYER=diuna OSCAR=1    # same with g.tec OSCAR in the bridge (use a separate PLAYER name, e.g. diuna-oscar)
 make headset [OSCAR=1]            # two computers, headset side (see "Two computers" below)
-make start EEG_HOST=<ip> PLAYER=anna   # two computers, server side
-make start PLAYER=anna MODE=fun   # fun mode
-make start PLAYER=anna MC_NAME=<username>   # optional: only this Minecraft account may join
-make start PLAYER=anna SKIP_CAL=1           # no calibration protocol (quick 30 s baseline if none saved)
-make hud PLAYER=anna              # headset + service + HUD, no game (signal checks)
+make start EEG_HOST=<ip> PLAYER=diuna   # two computers, server side
+make start PLAYER=diuna MODE=fun   # fun mode
+make start PLAYER=diuna MC_NAME=<username>   # optional: only this Minecraft account may join
+make start PLAYER=diuna SKIP_CAL=1           # no calibration protocol (quick 30 s baseline if none saved)
+make hud PLAYER=diuna              # headset + service + HUD, no game (signal checks)
 make dev                          # no hardware: HUD sliders + simulated game
 make demo-synthetic               # no headset: synthetic EEG + real Minecraft
-make check | make calibrate PLAYER=anna | make report | make test
+make check | make calibrate PLAYER=diuna | make report | make test
 ```
 
 What `make start` does (`--eeg gpype --game rcon`):
@@ -76,7 +76,7 @@ client:
 | Headset computer | Server computer |
 |---|---|
 | headset (Bluetooth), `eeg.gpype_bridge`, Minecraft client | Minecraft server, state service + HUD, game loop, calibration |
-| `make headset` | `make start EEG_HOST=<headset computer IP> PLAYER=anna` |
+| `make headset` | `make start EEG_HOST=<headset computer IP> PLAYER=diuna` |
 
 1. Both computers on the **same network**. Venue Wi-Fi often isolates
    devices from each other: a phone hotspot, a travel router or an
@@ -85,7 +85,7 @@ client:
    `poetry run python scripts/braincraft.py headset`). It prints this
    computer's IP and the exact command for the server computer, then
    runs the bridge with its scope window.
-3. **Server computer:** `make start EEG_HOST=<that IP> PLAYER=anna`. It
+3. **Server computer:** `make start EEG_HOST=<that IP> PLAYER=diuna`. It
    finds the EEG stream by unicast (liblsl `KnownPeers`, written to
    `sessions/lsl_api.cfg`), so it works where multicast is blocked. Then
    as usual: calibration, state service, Minecraft server, game. The
@@ -665,7 +665,7 @@ hits/misses, runs the director, logs to `sessions/`.
 
 ```bash
 # Real Minecraft (server running, player joined, state service running)
-poetry run python game_loop.py --mode rehab --rcon --name anna-1
+poetry run python game_loop.py --mode rehab --rcon --name diuna-1
 
 # Simulation, no Minecraft, no state service, 2 min in ~7 s, with a rest phase
 poetry run python game_loop.py --mode rehab --sim --no-service --duration 120 --speed 20 --fake-fatigue-at 20
@@ -812,7 +812,7 @@ fixes that.
 reads the EEG (the server computer in the two-computer setup):
 
 ```bash
-make artifacts PLAYER=anna EEG_HOST=172.20.10.2
+make artifacts PLAYER=diuna EEG_HOST=172.20.10.2
 ```
 
 The player follows the prompts:
@@ -827,7 +827,7 @@ The player follows the prompts:
 | talk | 20 s | talk normally |
 | play | 60 s | play as usual |
 
-It is saved as `sessions/artifacts-anna-<time>.npz`.
+It is saved as `sessions/artifacts-diuna-<time>.npz`.
 
 **Numbers for any recording:** `make replay` analyses all protocol and
 raw recordings in `sessions/`. Or name files:
@@ -842,8 +842,8 @@ recording it shows:
 **OSCAR A/B.** g.tec's built-in artifact removal can't be run offline:
 it needs g.Pype's licence and the headset. So record the protocol twice
 per person:
-1. `make headset` on the headset computer, then `make artifacts PLAYER=anna`;
-2. `make headset ARGS=--oscar`, then `make artifacts PLAYER=anna OSCAR=1`;
+1. `make headset` on the headset computer, then `make artifacts PLAYER=diuna`;
+2. `make headset OSCAR=1`, then `make artifacts PLAYER=diuna OSCAR=1`;
 3. `make replay` compares the two.
 
 Use OSCAR only if it raises usable % in "play" without losing the

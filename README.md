@@ -75,9 +75,9 @@ make setup ACCEPT_EULA=1    # once: deps + g.Pype + Minecraft server (accepts th
 **A. Everything on one computer** (headset paired to it):
 
 ```bash
-make start PLAYER=anna              # bridge, calibration, Minecraft server, service, HUD, game
-make start PLAYER=anna MODE=fun     # fun mode
-make start PLAYER=anna OSCAR=1      # with g.tec OSCAR artifact removal (own baseline: PLAYER=anna-oscar)
+make start PLAYER=diuna              # bridge, calibration, Minecraft server, service, HUD, game
+make start PLAYER=diuna MODE=fun     # fun mode
+make start PLAYER=diuna OSCAR=1      # with g.tec OSCAR artifact removal (own baseline: PLAYER=diuna-oscar)
 ```
 
 Join `localhost` in Minecraft 26.3; the HUD opens at <http://localhost:8000>.
@@ -89,7 +89,7 @@ Join `localhost` in Minecraft 26.3; the HUD opens at <http://localhost:8000>.
 # headset computer: bridge only, prints its IP and the server command
 make headset                        # OSCAR=1 for OSCAR
 # server computer: Minecraft server, service, HUD, game
-make start EEG_HOST=<headset IP> PLAYER=anna
+make start EEG_HOST=<headset IP> PLAYER=diuna
 ```
 
 Minecraft on the headset computer joins the server computer's IP; the

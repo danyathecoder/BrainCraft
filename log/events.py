@@ -15,7 +15,7 @@ SESSIONS_DIR = Path(__file__).resolve().parent.parent / "sessions"
 class EventLogger:
     """Append-only CSV logger, safe to share between threads.
 
-    >>> log = EventLogger("rehab-anna")
+    >>> log = EventLogger("rehab-diuna")
     >>> log.event("spawn", target_id="t1", side="L", ecc_deg=35)
     >>> log.decision("rest phase", reason="fatigue_z > 1.5 for 20 s")
     """

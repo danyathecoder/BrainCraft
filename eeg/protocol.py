@@ -1,6 +1,6 @@
 """Labelled artifact recording (~3.5 min) for tuning and training (P1).
 
-    python -m eeg.protocol --player anna [--name STREAM] [--oscar] [--fast]
+    python -m eeg.protocol --player diuna [--name STREAM] [--oscar] [--fast]
     python -m eeg.protocol --player test --source synthetic --fast   # no headset
 
 Prompts the player through phases and saves raw EEG + gyro with labels to

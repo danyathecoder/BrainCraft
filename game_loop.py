@@ -1,7 +1,7 @@
 """BrainCraft game loop: brain state + game events -> director -> RCON.
 
     python game_loop.py --mode rehab --sim --name demo --duration 120 --speed 20 --no-service
-    python game_loop.py --mode rehab --rcon --name anna --duration 600
+    python game_loop.py --mode rehab --rcon --name diuna --duration 600
 
 ~5 Hz loop. Once per (game) second: read the brain state (GET /state)
 and mode (GET /mode), feed the director, log a state row, POST /status.
