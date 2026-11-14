@@ -48,6 +48,7 @@ EVENT_FIELDS = [
 
 EVENT_TYPES = {
     "spawn",
+    "found",  # player first looked at the target (yaw within +-10 deg)
     "hit",
     "miss",
     "false_tag",
@@ -57,5 +58,30 @@ EVENT_TYPES = {
     "yaw",
 }
 
+# Brain-state log: <session>-state.csv next to the events CSV, one row
+# per second with the BrainState fields.
+STATE_FIELDS = list(BrainState.__dataclass_fields__)
+
 Side = Literal["L", "R"]
 Mode = Literal["rehab", "fun"]
+MODES = ("rehab", "fun")
+
+
+@dataclass
+class GameStatus:
+    """Payload of POST/GET /status: game loop -> HUD, about once per second."""
+
+    t: float = field(default_factory=time.time)
+    mode: str = "rehab"
+    resting: bool = False
+    spawn_interval_s: float = 4.0
+    p_left: float = 0.5
+    left_ecc_deg: float = 15.0
+    hits_L: int = 0
+    misses_L: int = 0
+    hits_R: int = 0
+    misses_R: int = 0
+    score: int = 0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
