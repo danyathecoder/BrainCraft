@@ -264,6 +264,18 @@ the player:
 - **Then a wave:** **5 walking enemies** of the current tiers, alternating
   left and right.
 
+**A storm instead of a quiet night:**
+- **Fun mode runs in a thunderstorm** (`weather thunder`): rain and a
+  darker sky.
+- **Scripted lightning** strikes every **15–40 s**, **42 blocks away**
+  (well behind the targets at 24) and within ±55° of where the player
+  looks, so it's visible but can't hit a target or the player.
+- **Rehab stays a clear night** (calmer for patients); switching modes
+  switches the weather.
+- **Caveat:** in a thunderstorm Minecraft also strikes naturally at random
+  spots. It rarely lands near a target or the player, but if it does, a
+  target can die (logged as a hit) or the player takes damage.
+
 **Jaw clench = flare:** a detected jaw clench makes all targets glow for
 5 s, with a 30 s cooldown. It's the player's one deliberate brain or
 muscle control.
@@ -335,6 +347,7 @@ The report is a training summary, not a diagnostic assessment.
 | enemy variety per spawn | `FunParams.newest_tier_share` (0.5) |
 | enemy health / lifetime / roster | `mc/enemies.py` `ROSTER` |
 | fun bow tiers (XP thresholds, enchantments) | `game/bow.py` `TIERS` |
+| storm lightning: how often, how far | `game/effects.py` `LIGHTNING_EVERY_S`, `LIGHTNING_DISTANCE`, `LIGHTNING_MAX_ANGLE` |
 | XP per kill / sheep penalty | `mc/enemies.py` `xp`, `MOB_XP_BONUS`, `SHEEP_XP_PENALTY` |
 
 Test any change without hardware first:

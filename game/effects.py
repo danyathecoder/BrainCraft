@@ -74,6 +74,29 @@ _MODE_SUBTITLE = {
     "rehab": "Rehab: scan left and right",
     "fun": "Fun: hold your ground",
 }
+def weather_cmd(mode: str) -> str:
+    """Fun: a thunderstorm at night. Rehab: a clear night (calmer, for patients)."""
+    return "weather thunder" if mode == "fun" else "weather clear"
+
+
+# Scripted lightning in fun mode: this far from the player (targets stand at
+# TARGET_DISTANCE = 24; a bolt hurts within ~3 blocks), within this angle of
+# where they look, every LIGHTNING_EVERY_S seconds (random in the range).
+LIGHTNING_DISTANCE = 42
+LIGHTNING_MAX_ANGLE = 55.0
+LIGHTNING_EVERY_S = (15.0, 40.0)
+
+
+def lightning_cmd(angle_deg: float, facing_yaw: float = 180.0,
+                  distance: float = LIGHTNING_DISTANCE) -> str:
+    """A lightning bolt `angle_deg` left (<0) or right (>0) of where the player looks."""
+    from game.geometry import target_position
+
+    side = "L" if angle_deg < 0 else "R"
+    x, y, z = target_position(side, abs(angle_deg), distance=distance, facing_yaw=facing_yaw)
+    return f"summon minecraft:lightning_bolt {x:.1f} {y:.1f} {z:.1f}"
+
+
 def bow_cmds(mode: str, player: str = P, tier: int = 0) -> list[str]:
     """Replace the player's bow: the XP tier's enchanted bow in fun mode
     (game/bow.py), a plain one in rehab (comparable metrics)."""
@@ -173,7 +196,7 @@ class Effects:
         self.clear_entities()
         self.cmd(clear_tower_cmd())
         self.cmd("time set midnight")
-        self.cmd("weather clear")
+        self.cmd(weather_cmd(mode))
         self.cmd(f"effect clear {p}")
         self.cmd(player_anchor_cmd(p))
         for c in lock_movement_cmds(p):
@@ -208,6 +231,10 @@ class Effects:
         self.cmd(subtitle_cmd(f"{label}: {threat}", "red", player=p))
         self.cmd(title_cmd("New enemy!", "red", player=p))
 
+    def lightning(self, angle_deg: float, facing_yaw: float | None) -> None:
+        """Fun-mode atmosphere: a bolt far behind the targets, in view."""
+        self.cmd(lightning_cmd(angle_deg, 180.0 if facing_yaw is None else facing_yaw))
+
     def keep_player(self) -> None:
         """Re-apply the movement lock; after a death and respawn Minecraft
         resets player attributes. Idempotent, called every few s. No
@@ -230,6 +257,7 @@ class Effects:
         if mode != "fun":
             self.cmd(f"effect clear {self.player} minecraft:darkness")
             self.cmd("time set midnight")
+        self.cmd(weather_cmd(mode))
         self.give_bow(mode)
         self.cmd(subtitle_cmd(_MODE_SWITCH.get(mode, mode), player=self.player))
         self.cmd(title_cmd("Mode switch", "gold", player=self.player))

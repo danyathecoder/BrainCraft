@@ -192,3 +192,37 @@ def test_kill_xp_and_effects():
     r.sent.clear()
     fx.session_start("fun")
     assert "xp set @p 0 levels" in r.sent and "xp set @p 0 points" in r.sent
+
+
+def test_fun_storm_and_lightning_stay_clear_of_targets(tmp_path):
+    import math
+    import re
+
+    import game_loop
+    from log.events import EventLogger
+    from mc import config
+    from mc.sim import SimRcon
+    from tests.test_game import read_csv
+
+    assert effects.weather_cmd("fun") == "weather thunder"
+    assert effects.weather_cmd("rehab") == "weather clear"
+    clock = game_loop.SimClock(start=1_800_000_000.0, speed=0)
+    rcon = SimRcon(clock=clock.now, seed=4)
+    logger = EventLogger("test-storm", directory=tmp_path)
+    game_loop.run_session(mode="fun", rcon=rcon, logger=logger, clock=clock, duration_s=300,
+                          sim=True, brain=game_loop.FakeBrain(seed=1), out=lambda *_: None)
+    logger.close()
+    assert "weather thunder" in rcon.commands
+    bolts = [c for c in rcon.commands if c.startswith("summon minecraft:lightning_bolt")]
+    assert 6 <= len(bolts) <= 21  # one every 15-40 s
+    for c in bolts:
+        x, _, z = map(float, re.findall(r"-?\d+\.\d", c)[:3])
+        d = math.hypot(x - (config.STAND_X + 0.5), z - (config.STAND_Z + 0.5))
+        assert d >= config.TARGET_DISTANCE + 10  # well behind the targets
+    rehab = SimRcon(clock=clock.now, seed=4)
+    logger = EventLogger("test-calm", directory=tmp_path)
+    game_loop.run_session(mode="rehab", rcon=rehab, logger=logger, clock=clock, duration_s=120,
+                          sim=True, brain=game_loop.FakeBrain(seed=1), out=lambda *_: None)
+    logger.close()
+    assert "weather clear" in rehab.commands and "weather thunder" not in rehab.commands
+    assert not any("lightning_bolt" in c for c in rehab.commands)

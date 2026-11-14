@@ -21,7 +21,7 @@ in-game performance, and reshapes the game in real time.
   → bogged → pillager → blaze, all shooting), and up to two levels more
   when the player's engagement falls below its own recent peak. The
   player's enchanted bow upgrades with the XP score (Power I → V, Punch,
-  Flame).
+  Flame), and it all happens in a thunderstorm with lightning.
 
 How both modes spawn targets, which metrics drive them and every rule
 with its numbers: **[docs/modes.md](docs/modes.md)**.

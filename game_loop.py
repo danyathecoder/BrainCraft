@@ -36,6 +36,7 @@ from pathlib import Path
 from contracts import MODES, BrainState, GameStatus
 from director import make_director
 from director.base import Decision
+from game.effects import LIGHTNING_EVERY_S, LIGHTNING_MAX_ANGLE
 from game.effects import Effects
 from game.trials import TrialRunner
 from log.events import SESSIONS_DIR, EventLogger
@@ -272,6 +273,8 @@ def run_session(*, mode: str, rcon, logger, clock, duration_s: float, sim: bool 
         apply(d, t0)
     next_second = t0
     next_keep = t0 + KEEP_PLAYER_S
+    storm_rng = random.Random(seed)
+    next_bolt = t0 + storm_rng.uniform(*LIGHTNING_EVERY_S)
     dt = 1.0 / hz
     try:
         rcon_failures = 0
@@ -295,6 +298,10 @@ def run_session(*, mode: str, rcon, logger, clock, duration_s: float, sim: bool 
                     if now >= next_keep:  # the player can die: re-lock after a respawn
                         next_keep = now + KEEP_PLAYER_S
                         effects.keep_player()
+                    if current == "fun" and now >= next_bolt:  # storm atmosphere
+                        next_bolt = now + storm_rng.uniform(*LIGHTNING_EVERY_S)
+                        effects.lightning(storm_rng.uniform(-LIGHTNING_MAX_ANGLE, LIGHTNING_MAX_ANGLE),
+                                          rcon.yaw())
                     state = read_state(now)
                     decisions += director.on_state(state, now)
                     logger.state(state)
