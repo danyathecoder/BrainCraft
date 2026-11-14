@@ -6,6 +6,7 @@ Endpoints:
 - GET/POST /status     game status (GameStatus), game loop -> HUD
 - GET/POST /decisions  director decisions with reasons, game loop -> HUD
 - GET/POST /mode       "rehab" | "fun", HUD button -> game loop
+- GET  /raw            last seconds of filtered EEG for the HUD scope (eeg source)
 - GET  /               HUD page
 
 Brain-state sources (BRAINCRAFT_SOURCE):
@@ -44,6 +45,14 @@ _status = GameStatus()
 _mode = "rehab"
 _decisions: deque[dict] = deque(maxlen=MAX_DECISIONS)
 _stop = threading.Event()
+_stream = None  # EEGStream, set by the pipeline (eeg source only)
+RAW_DECIMATE = 2  # 250 Hz -> 125 Hz for the HUD
+FLAT_UV, NOISY_UV = 0.5, 100.0  # per-channel RMS limits shown on the HUD
+
+
+def _set_stream(stream) -> None:
+    global _stream
+    _stream = stream
 
 
 @asynccontextmanager
@@ -54,7 +63,7 @@ async def lifespan(_app: FastAPI):
         threading.Thread(
             target=run_pipeline,
             args=(publish, _stop),
-            kwargs={"source": EEG_INPUT},
+            kwargs={"source": EEG_INPUT, "on_stream": _set_stream},
             daemon=True,
         ).start()
     else:
@@ -95,6 +104,43 @@ def get_state() -> dict:
     data = current().to_dict()
     data["source"] = SOURCE
     return data
+
+
+@app.get("/raw")
+def get_raw(seconds: float = 5.0) -> dict:
+    """Last `seconds` of EEG, detrended + 50 Hz notch + 1-40 Hz, in uV.
+
+    For looking at the signal (electrode fit, blinks, jaw), not analysis.
+    """
+    stream = _stream
+    if SOURCE != "eeg":
+        return {"available": False, "reason": "raw EEG only with BRAINCRAFT_SOURCE=eeg"}
+    if stream is None or stream.total_samples == 0:
+        return {"available": False, "reason": "waiting for the EEG stream"}
+    import numpy as np
+
+    from eeg.features import preprocess
+    from eeg.layout import EEG_CHANNELS
+
+    seconds = min(max(seconds, 1.0), 8.0)
+    fs = float(stream.fs)
+    n = int(seconds * fs)
+    window = stream.window(seconds)
+    have = min(stream.total_samples, len(window))
+    x = preprocess(window[-have:], fs) if have >= fs else np.zeros((0, len(EEG_CHANNELS)))
+    rms = np.sqrt((x**2).mean(axis=0)) if len(x) else np.zeros(len(EEG_CHANNELS))
+    flags = ["flat" if r < FLAT_UV else "noisy" if r > NOISY_UV else "ok" for r in rms]
+    return {
+        "available": True,
+        "fs": fs / RAW_DECIMATE,
+        "seconds": seconds,
+        "missing_s": max(0.0, (n - len(x)) / fs),
+        "age_s": round(stream.seconds_since_data, 2),
+        "channels": EEG_CHANNELS,
+        "data": np.round(x[::RAW_DECIMATE].T, 1).tolist(),
+        "rms": [round(float(r), 1) for r in rms],
+        "flags": flags,
+    }
 
 
 @app.post("/mock")

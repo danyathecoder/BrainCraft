@@ -57,6 +57,15 @@
   .zcard.isstale .zrow { opacity: .4; }
   .axisnote { font-size: 12px; color: var(--muted); text-align: right; }
 
+  /* raw EEG */
+  .rawhead { display: flex; align-items: baseline; gap: 12px; }
+  .rawhead h2 { margin-bottom: 8px; }
+  .rawhead .spacer { flex: 1; }
+  .rawhead button { background: #262624; color: var(--ink); border: 1px solid var(--line); border-radius: 6px;
+    padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  canvas#raw { width: 100%; height: 300px; display: block; }
+  .rawnote { font-size: 13px; color: var(--muted); margin-top: 6px; }
+
   /* status */
   .restbadge { display: none; text-align: center; font-size: 34px; font-weight: 800; letter-spacing: .12em;
     padding: 14px; border-radius: 10px; margin-bottom: 14px; background: var(--warn); color: #0b0b0b;
@@ -125,6 +134,14 @@
       <div class="axisnote">bars: &minus;3 &hellip; +3 &middot; sparklines: last 60 s</div>
       <div class="signal" id="signal"></div>
       <div class="stale" id="stale">STALE &mdash; no fresh brain-state data</div>
+    </section>
+
+    <section class="card" id="rawcard" hidden>
+      <div class="rawhead"><h2>Raw EEG &middot; 1&ndash;40 Hz, last 5 s</h2><span class="spacer"></span>
+        <button id="rawscale" title="vertical scale per channel">&plusmn;50 &micro;V</button>
+        <button id="rawpause">Pause</button></div>
+      <canvas id="raw"></canvas>
+      <div class="rawnote" id="rawnote"></div>
     </section>
 
     <section class="card statuscard isidle" id="statuscard">
@@ -413,6 +430,85 @@ document.querySelectorAll("#sliders input").forEach(el =>
 $("jaw").addEventListener("change", e => sendMock({ jaw_clench: e.target.checked }));
 $("badq").addEventListener("change", e => sendMock({ quality: e.target.checked ? "bad" : "ok" }));
 $("artifact").addEventListener("change", e => sendMock({ artifact: e.target.value }));
+
+// ---- raw EEG scope ------------------------------------------------------
+// Polled faster than the rest, only while the service has an EEG stream.
+const RAW_MS = 250, RAW_SCALES = [25, 50, 100, 200];
+const FLAT_TXT = "0.5", NOISY_TXT = "100";   // state_service FLAT_UV / NOISY_UV
+let rawScale = 50, rawPaused = false, rawData = null, rawBusy = false;
+
+$("rawscale").addEventListener("click", () => {
+  rawScale = RAW_SCALES[(RAW_SCALES.indexOf(rawScale) + 1) % RAW_SCALES.length];
+  $("rawscale").innerHTML = `&plusmn;${rawScale} &micro;V`;
+  drawRaw();
+});
+$("rawpause").addEventListener("click", () => {
+  rawPaused = !rawPaused;
+  $("rawpause").textContent = rawPaused ? "Resume" : "Pause";
+});
+
+async function pollRaw() {
+  if (rawBusy || rawPaused || stateSource !== "eeg") { $("rawcard").hidden = stateSource !== "eeg"; return; }
+  rawBusy = true;
+  try {
+    const r = await getJSON("/raw?seconds=5");
+    $("rawcard").hidden = false;
+    if (!r.available) { rawData = null; $("rawnote").textContent = r.reason || "no raw EEG"; drawRaw(); return; }
+    rawData = r;
+    const bad = r.channels.map((c, i) => r.flags[i] !== "ok" ? `${c} ${r.flags[i]} (${r.rms[i]} µV)` : null).filter(Boolean);
+    $("rawnote").innerHTML = (r.age_s > 2 ? `<span class="bad">no new samples for ${r.age_s.toFixed(1)} s</span> · ` : "") +
+      (bad.length ? `<span class="warnc">check electrodes: ${esc(bad.join(", "))}</span>`
+                  : `all channels in range (RMS ${FLAT_TXT}–${NOISY_TXT} µV)`);
+    drawRaw();
+  } catch (e) {
+    $("rawnote").innerHTML = `<span class="bad">${esc(e.message || e)}</span>`;
+  } finally {
+    rawBusy = false;
+  }
+}
+function drawRaw() {
+  const cv = $("raw");
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (!rawData) return;
+  const n = rawData.channels.length, lane = h / n, left = 44;
+  const span = rawData.seconds * rawData.fs;
+  ctx.font = "12px system-ui, sans-serif";
+  ctx.textBaseline = "middle";
+  // 1 s grid
+  ctx.strokeStyle = "#262624"; ctx.lineWidth = 1;
+  for (let s = 1; s < rawData.seconds; s++) {
+    const gx = left + (w - left) * s / rawData.seconds;
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, h); ctx.stroke();
+  }
+  rawData.channels.forEach((name, i) => {
+    const mid = lane * (i + 0.5), ys = (lane / 2 - 2) / rawScale;
+    const flag = rawData.flags[i];
+    ctx.fillStyle = flag === "ok" ? "#a8a8a3" : "#fab219";
+    ctx.fillText(name, 4, mid);
+    ctx.strokeStyle = "#383835";
+    ctx.beginPath(); ctx.moveTo(left, mid); ctx.lineTo(w, mid); ctx.stroke();
+    const d = rawData.data[i], off = span - d.length;   // right-aligned
+    ctx.strokeStyle = flag === "ok" ? "#3987e5" : "#fab219";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    for (let j = 0; j < d.length; j++) {
+      const x = left + (w - left) * (off + j) / span;
+      const v = Math.max(-rawScale, Math.min(rawScale, d[j]));
+      j ? ctx.lineTo(x, mid - v * ys) : ctx.moveTo(x, mid - v * ys);
+    }
+    ctx.stroke();
+  });
+}
+setInterval(pollRaw, RAW_MS);
+window.addEventListener("resize", drawRaw);
 
 // ---- main loop ----------------------------------------------------------
 let busy = false;

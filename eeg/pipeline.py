@@ -69,9 +69,14 @@ def run(
     stream: EEGStream | None = None,
     calibration_durations: tuple[float, float, float] = DURATIONS,
     prompt: Callable[[str], None] | None = None,
+    on_stream: Callable[[EEGStream], None] | None = None,
     **stream_kwargs,
 ) -> None:
-    """Publish BrainState every `period` s until `stop` is set. Never raises."""
+    """Publish BrainState every `period` s until `stop` is set. Never raises.
+
+    `on_stream(stream)` is called once the EEG stream is running (the state
+    service uses it to serve the raw signal to the HUD).
+    """
     baseline_path = Path(baseline_path) if baseline_path else default_baseline_path()
     name = name or os.environ.get("BRAINCRAFT_LSL_NAME") or None
     prompt = prompt or (lambda msg: (print(msg, flush=True), log.info(msg)))
@@ -94,6 +99,12 @@ def run(
                 publish(_bad(zero))
                 if stop.wait(RETRY_S):
                     return
+
+        if on_stream is not None:
+            try:
+                on_stream(stream)
+            except Exception:
+                log.exception("on_stream callback failed")
 
         # 2. baseline
         baseline: Baseline | None = None
