@@ -7,6 +7,11 @@
                                                [--player NAME] [--recalibrate]
     poetry run python scripts/braincraft.py check | calibrate | report
 
+Two computers (docs/setup.md, "Two computers"):
+    headset computer:  braincraft.py headset            (bridge + Minecraft client)
+    server computer:   braincraft.py start --eeg-host <headset IP>
+                       (state service, HUD, Minecraft server, game loop)
+
 `start` brings the services up in order, checks each one before the
 next, prefixes their output ([bridge], [service], ...) and stops all of
 them on Ctrl+C. Logs: sessions/logs/<time>-<service>.log. The Makefile
@@ -157,6 +162,41 @@ def find_stream(name: str | None) -> bool:
     return any((s.name() == name if name else s.type() == "EEG") for s in lsl_streams())
 
 
+LSL_CFG = SESSIONS / "lsl_api.cfg"
+LSL_PORTS = "16571-16604"  # liblsl's TCP + UDP ports
+
+
+def local_ips() -> list[str]:
+    """This computer's IPv4 addresses on the local network."""
+    ips: set[str] = set()
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))  # no packet is sent
+            ips.add(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    return sorted(ip for ip in ips if not ip.startswith(("127.", "169.254.")))
+
+
+def use_eeg_host(host: str | None) -> None:
+    """Find LSL streams on another computer by unicast (liblsl KnownPeers).
+
+    Venue Wi-Fi often blocks the multicast LSL normally discovers with.
+    Must run before the first pylsl call; child processes inherit it.
+    """
+    if not host:
+        return
+    SESSIONS.mkdir(parents=True, exist_ok=True)
+    LSL_CFG.write_text(f"[lab]\nKnownPeers = {{{host}}}\n", encoding="utf-8")
+    os.environ["LSLAPICFG"] = str(LSL_CFG)
+    say(f"EEG comes from {host} (LSL KnownPeers, config {LSL_CFG.relative_to(ROOT)})")
+
+
 def rcon_ok() -> bool:
     try:
         from mc.rcon import Rcon
@@ -262,6 +302,7 @@ def cmd_setup(args) -> int:
 
 
 def cmd_doctor(args) -> int:
+    use_eeg_host(args.eeg_host)
     rows: list[tuple[str, bool, str]] = []
 
     def row(name, ok, detail=""):
@@ -309,6 +350,7 @@ def cmd_doctor(args) -> int:
     streams = lsl_streams(2.0)
     row("LSL EEG stream", any(s.type() == "EEG" for s in streams),
         ", ".join(f"{s.name()} ({s.channel_count()} ch)" for s in streams) or "none")
+    row("this computer's IP", bool(local_ips()), ", ".join(local_ips()) or "no network")
     baselines = sorted(p.name for p in SESSIONS.glob("baseline*.json"))
     row("baselines", bool(baselines), ", ".join(baselines) or "none yet (start calibrates)")
 
@@ -319,6 +361,7 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_check(args) -> int:
+    use_eeg_host(args.eeg_host)
     cmd = [PY, "-m", "eeg.check"]
     if args.name:
         cmd += ["--name", args.name]
@@ -337,8 +380,33 @@ def run_calibration(eeg: str, out: Path, name: str | None) -> None:
 
 
 def cmd_calibrate(args) -> int:
+    use_eeg_host(args.eeg_host)
     run_calibration(args.eeg, baseline_path(args.player), args.name)
     return 0
+
+
+def cmd_headset(args) -> int:
+    """Headset computer: only the bridge (and the Minecraft client, by hand)."""
+    ips = local_ips()
+    here = ips[0] if ips else "<this computer's IP>"
+    say(f"this computer's IP: {', '.join(ips) or 'unknown (not on a network?)'}")
+    say(f"on the SERVER computer run:  make start EEG_HOST={here} PLAYER=<name>")
+    say(f"   (without make: poetry run python scripts/braincraft.py start --eeg-host {here})")
+    say("Minecraft on this computer: Multiplayer -> Direct Connection -> <server computer IP>")
+    if WINDOWS:
+        say("Windows Firewall: when asked, allow Python on Private AND Public networks "
+            f"(LSL uses ports {LSL_PORTS})")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    cmd = [PY, "-m", "eeg.gpype_bridge"]
+    if args.record:
+        cmd += ["--record", str(SESSIONS / f"raw-headset-{stamp}")]
+    for flag in ("oscar", "fake", "no_scope"):
+        if getattr(args, flag):
+            cmd.append("--" + flag.replace("_", "-"))
+    try:
+        return subprocess.call(cmd, cwd=ROOT)
+    except KeyboardInterrupt:
+        return 0
 
 
 def cmd_whitelist(args) -> int:
@@ -370,6 +438,11 @@ def cmd_start(args) -> int:
     children: list[Child] = []
     server: Child | None = None
     lsl_name = args.lsl_name or (BRIDGE_STREAM if args.eeg == "gpype" else None)
+    remote = bool(args.eeg_host)
+    if remote and args.eeg not in ("gpype", "unicorn"):
+        die("--eeg-host needs --eeg gpype or unicorn (the stream comes from that computer)")
+    use_eeg_host(args.eeg_host)
+    lan = args.lan or remote
 
     if port_open(args.port):
         st = http_json(f"http://127.0.0.1:{args.port}/state")
@@ -386,7 +459,14 @@ def cmd_start(args) -> int:
     try:
         # 1. EEG reader
         service_env = {"BRAINCRAFT_SOURCE": "mock" if args.eeg == "mock" else "eeg"}
-        if args.eeg == "gpype":
+        if args.eeg == "gpype" and remote:
+            say(f"start the bridge on the headset computer ({args.eeg_host}): make headset")
+            if not wait_until(f"LSL stream {BRIDGE_STREAM!r} from {args.eeg_host}",
+                              lambda: find_stream(BRIDGE_STREAM), 180, every=0):
+                die(f"no stream from {args.eeg_host}. Is `make headset` streaming there? Same "
+                    f"network (try: ping {args.eeg_host})? Firewall on the headset computer "
+                    f"must allow Python (ports {LSL_PORTS}).")
+        elif args.eeg == "gpype":
             if find_stream(BRIDGE_STREAM):
                 say(f"LSL stream {BRIDGE_STREAM!r} already running; not starting another bridge")
             else:
@@ -431,7 +511,8 @@ def cmd_start(args) -> int:
 
         # 3. state service + HUD
         service = Child("service", [PY, "-m", "uvicorn", "state_service:app",
-                                    "--host", "127.0.0.1", "--port", str(args.port),
+                                    "--host", "0.0.0.0" if lan else "127.0.0.1",
+                                    "--port", str(args.port),
                                     "--no-access-log"],
                         env=service_env, stamp=stamp)
         children.append(service)
@@ -445,6 +526,9 @@ def cmd_start(args) -> int:
         hud = f"http://localhost:{args.port}"
         say(f"HUD: {hud}   API: {hud}/docs   logs: "
             f"{LOGS.relative_to(ROOT)}{os.sep}{stamp}-<bridge|service|minecraft|game>.log")
+        if lan:
+            say("HUD from other computers: " + ", ".join(
+                f"http://{ip}:{args.port}" for ip in local_ips()) + " (firewall: allow Python)")
         if not args.no_browser:
             webbrowser.open(hud)
 
@@ -464,7 +548,10 @@ def cmd_start(args) -> int:
                 with_rcon("whitelist off")
             subprocess.call([PY, "-m", "mc.world"], cwd=ROOT)
             if args.wait_player:
-                say("join the server now: Minecraft 26.3 -> Multiplayer -> Direct Connection -> localhost")
+                where = ("this computer's IP: " + ", ".join(local_ips())) if lan else "localhost"
+                say(f"join the server now: Minecraft 26.3 -> Multiplayer -> Direct Connection -> {where}")
+                if lan and WINDOWS:
+                    say("Windows Firewall: allow Java on Private AND Public networks (port 25565)")
                 last_hint = [time.monotonic()]
 
                 def joined() -> bool:
@@ -538,15 +625,24 @@ def parse_args(argv=None) -> argparse.Namespace:
     s.add_argument("--no-gpype", action="store_true", help="skip the g.Pype headset group")
     s.add_argument("--java", help="java executable for the server")
 
-    sub.add_parser("doctor", help="check prerequisites and what is running")
+    d = sub.add_parser("doctor", help="check prerequisites and what is running")
+    d.add_argument("--eeg-host", help="headset computer's IP (EEG from another computer)")
 
     c = sub.add_parser("check", help="signal sanity check (eyes-closed alpha)")
     c.add_argument("--name", help="LSL stream name")
+    c.add_argument("--eeg-host", help="headset computer's IP")
+
+    h = sub.add_parser("headset", help="headset computer: run only the bridge, print how to connect")
+    h.add_argument("--no-record", dest="record", action="store_false", help="don't save raw EEG")
+    h.add_argument("--oscar", action="store_true")
+    h.add_argument("--fake", action="store_true", help="no headset: g.Pype sine generator")
+    h.add_argument("--no-scope", action="store_true", help="window without the scope (less CPU)")
 
     k = sub.add_parser("calibrate", help="record a baseline for --player")
     k.add_argument("--player", default="player")
     k.add_argument("--eeg", choices=("gpype", "unicorn", "synthetic"), default="gpype")
     k.add_argument("--name", help="LSL stream name")
+    k.add_argument("--eeg-host", help="headset computer's IP")
 
     w = sub.add_parser("whitelist", help="allow Minecraft usernames to join the running server")
     w.add_argument("names", nargs="+")
@@ -572,6 +668,10 @@ def parse_args(argv=None) -> argparse.Namespace:
     st.add_argument("--duration", type=float, default=600.0, help="game session length, s")
     st.add_argument("--port", type=int, default=8000)
     st.add_argument("--lsl-name", help="LSL stream name (default: the bridge's, or any EEG stream)")
+    st.add_argument("--eeg-host", metavar="IP",
+                    help="the headset + bridge run on another computer (`headset` command there)")
+    st.add_argument("--lan", action="store_true",
+                    help="serve HUD and Minecraft to other computers (implied by --eeg-host)")
     st.add_argument("--no-record", dest="record", action="store_false", help="don't save raw EEG")
     st.add_argument("--oscar", action="store_true", help="bridge: OSCAR artifact removal")
     st.add_argument("--no-wait-player", dest="wait_player", action="store_false",
@@ -591,7 +691,7 @@ def main(argv=None) -> int:
     return {
         "setup": cmd_setup, "doctor": cmd_doctor, "check": cmd_check,
         "calibrate": cmd_calibrate, "report": cmd_report, "start": cmd_start,
-        "whitelist": cmd_whitelist,
+        "whitelist": cmd_whitelist, "headset": cmd_headset,
     }[args.command](args)
 
 

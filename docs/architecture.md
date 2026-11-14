@@ -45,6 +45,25 @@ flowchart LR
 | Any EEG | mock brain state | state service in mock mode, HUD sliders |
 | Minecraft | `mc/sim.py` `SimRcon` | `game_loop.py --sim`: a seeded player with a left-neglect profile |
 
+**Two computers (optional):** to spread the load, the headset computer runs only the bridge and the Minecraft client, and the server computer runs the Minecraft server, state service, HUD and game loop. Only two links cross the network: LSL (bridge → state service, found by unicast through liblsl `KnownPeers`, ports 16571–16604) and the Minecraft protocol (client → server, 25565). RCON stays local to the server computer. Setup: [setup.md, "Two computers"](setup.md#two-computers).
+
+```mermaid
+flowchart LR
+  subgraph A["Headset computer"]
+    BR["eeg/gpype_bridge.py"]
+    MC["Minecraft client"]
+  end
+  subgraph B["Server computer"]
+    SS["state_service.py :8000"]
+    GL["Game loop"]
+    MS["Minecraft server<br/>RCON :25575 local"]
+  end
+  BR -->|"LSL, KnownPeers"| SS
+  MC <-->|":25565"| MS
+  SS <--> GL
+  GL -->|"RCON"| MS
+```
+
 **Why the headset reader is a separate process:** the state service only reads the LSL stream (its `eeg/` pipeline runs in a background thread). The reader runs on its own, so:
 - after a Bluetooth drop, only the reader restarts, while the HUD, game loop and Minecraft session keep running;
 - on macOS, g.Pype needs the main thread's event loop, which uvicorn already owns in the state service;

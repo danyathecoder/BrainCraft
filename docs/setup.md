@@ -64,6 +64,48 @@ terminal: `Get-Content sessions\logs\<time>-service.log -Wait`
 service's API is browsable at <http://localhost:8000/docs> (`/state`,
 `/status`, `/decisions`, `/raw`, `/mode`).
 
+### Two computers
+
+The Minecraft server and the state service can run on a second
+computer, so the headset laptop only runs the bridge and the Minecraft
+client:
+
+| Headset computer | Server computer |
+|---|---|
+| headset (Bluetooth), `eeg.gpype_bridge`, Minecraft client | Minecraft server, state service + HUD, game loop, calibration |
+| `make headset` | `make start EEG_HOST=<headset computer IP> PLAYER=anna` |
+
+1. Both computers on the **same network**. Venue Wi-Fi often isolates
+   devices from each other: a phone hotspot, a travel router or an
+   Ethernet cable is safer. Check with `ping <other IP>` both ways.
+2. **Headset computer:** `make headset` (without make:
+   `poetry run python scripts/braincraft.py headset`). It prints this
+   computer's IP and the exact command for the server computer, then
+   runs the bridge with its scope window.
+3. **Server computer:** `make start EEG_HOST=<that IP> PLAYER=anna`. It
+   finds the EEG stream by unicast (liblsl `KnownPeers`, written to
+   `sessions/lsl_api.cfg`), so it works where multicast is blocked. Then
+   as usual: calibration, state service, Minecraft server, game. The
+   state service and Minecraft accept connections from the network.
+4. **Minecraft client** on the headset computer: Direct Connection →
+   the server computer's IP (the launcher prints it).
+5. **HUD** from any computer: `http://<server computer IP>:8000`.
+
+Notes:
+
+- **Firewall (Windows):** when asked, allow **Python** on the headset
+  computer (LSL, ports 16571–16604) and **Python and Java** on the
+  server computer (8000, 25565), for Private **and** Public networks
+  (venue Wi-Fi is usually "Public"). RCON (25575) stays local to the
+  server computer.
+- **Calibration prompts** appear on the server computer's terminal:
+  read them out to the player, or use `SKIP_CAL=1`.
+- Only the headset computer needs `poetry install --with gpype`.
+- `make check EEG_HOST=<ip>` and `make doctor EEG_HOST=<ip>` on the
+  server computer check the remote stream.
+- `ARGS=--lan` (no `EEG_HOST`) opens the HUD and Minecraft server to the
+  network while the headset stays on the server computer.
+
 The sections below describe each piece on its own, for debugging or
 running pieces by hand.
 
