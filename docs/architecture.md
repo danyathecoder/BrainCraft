@@ -30,7 +30,7 @@ flowchart LR
   GL -->|"RCON commands:<br/>summon, title, time, playsound"| MS
   MS -->|"replies: target alive?, yaw"| GL
   MS <-->|"Minecraft protocol :25565"| MC
-  SS -->|"GET /state, /status, /decisions"| HUD
+  SS -->|"GET /state, /status, /decisions, /raw"| HUD
   HUD -->|"POST /mode"| SS
   HUD -.->|"POST /mock, dev only"| SS
   GL -->|"events + state per second"| CSV
@@ -56,7 +56,7 @@ See [setup.md](setup.md) for how to run every piece.
 |---|---|---|
 | Headset → reader (g.Pype bridge, or Unicorn Suite) | Bluetooth | — |
 | Reader → state service | LSL, stream `BrainCraft-Unicorn`, type `EEG` | network multicast (same machine is safest) |
-| State service ↔ game loop, HUD | HTTP: `/state`, `/status`, `/decisions`, `/mode` | 8000 |
+| State service ↔ game loop, HUD | HTTP: `/state`, `/status`, `/decisions`, `/mode`; `/raw` (EEG scope) | 8000 |
 | Game loop ↔ Minecraft server | RCON (TCP), plain command text | 25575 |
 | Minecraft server ↔ client | normal multiplayer, join `localhost` | 25565 |
 

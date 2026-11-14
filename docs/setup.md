@@ -13,6 +13,52 @@ and common errors.
 
 ---
 
+## Fast path: launcher and `make`
+
+`scripts/braincraft.py` starts everything in the right order, checks
+each piece before the next, prefixes the output (`[bridge]`,
+`[service]`, `[game]`, `[minecraft]`) and stops it all on **one
+Ctrl+C**. The `Makefile` wraps it. Without `make` (plain Windows), run
+the launcher directly: every `make X` below has the
+`poetry run python scripts/braincraft.py ...` line in the `Makefile`.
+
+```bash
+make setup                 # poetry install + g.Pype group
+make setup ACCEPT_EULA=1   # ... and the Minecraft 26.3 server (accepts https://aka.ms/MinecraftEULA)
+make doctor                # what's installed / running (Java, server, LSL streams, baselines)
+
+make start PLAYER=anna            # demo: bridge -> calibration (first time) -> Minecraft -> service -> HUD -> game
+make start PLAYER=anna MODE=fun   # fun mode
+make hud PLAYER=anna              # headset + service + HUD, no game (signal checks)
+make dev                          # no hardware: HUD sliders + simulated game
+make demo-synthetic               # no headset: synthetic EEG + real Minecraft
+make check | make calibrate PLAYER=anna | make report | make test
+```
+
+What `make start` does (`--eeg gpype --game rcon`):
+
+1. starts the g.Pype bridge (with raw recording to `sessions/raw-<session>_<time>.csv`)
+   and waits for its LSL stream;
+2. calibrates the player if `sessions/baseline-<player>.json` doesn't
+   exist (or with `ARGS=--recalibrate`), in the foreground: follow the
+   instructions;
+3. starts the Minecraft server if RCON isn't answering, runs `mc.world`,
+   waits for you to join `localhost`, then puts you on the tower;
+4. starts the state service with the right settings and **checks it
+   reports `source=eeg`**, then opens the HUD;
+5. starts the game loop; when the session ends it opens the report and
+   keeps the service and HUD running.
+
+Other choices: `EEG=unicorn` (Unicorn LSL app already streaming),
+`EEG=synthetic`, `EEG=mock`; `GAME=sim` or `GAME=none`;
+`DURATION=300`; `ARGS="--oscar --no-browser --no-wait-player"`. Logs of
+every service: `sessions/logs/<time>-<service>.log`.
+
+The sections below describe each piece on its own, for debugging or
+running pieces by hand.
+
+---
+
 ## 1. Overview
 
 ```
@@ -594,8 +640,21 @@ the judges. It shows the live brain state, game status, the director's
 decision log (each with its reason) and **mode buttons** (rehab / fun).
 In mock mode it also has sliders for the brain state.
 
+In EEG mode it also shows a **raw EEG scope**: the last 5 s of all 8
+channels (1–40 Hz, 50 Hz notch), refreshed 4× per second from
+`GET /raw`. Channels whose RMS is below 0.5 µV (flat: no contact) or
+above 100 µV (noisy: loose electrode, jaw, movement) turn amber and are
+named under the scope. The button cycles the scale (±25 … ±200 µV per
+channel). The z-score gauges change slowly (1 value/s, smoothed over
+~15 s): use the scope to see blinks, jaw clenching and eyes-closed alpha
+immediately.
+
+The decision log fills only while the **game loop** runs: decisions are
+made by its director, not by the state service.
+
 **Check:** values update about once per second; clicking a mode button
-changes the mode shown by `GET /mode`.
+changes the mode shown by `GET /mode`; in EEG mode a blink shows on Fz
+in the scope.
 
 ---
 

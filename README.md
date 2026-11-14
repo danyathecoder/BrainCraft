@@ -54,7 +54,8 @@ mc/                  RCON client, world setup, SimRcon simulator   (P3)
 game/                geometry, trial runner, in-game effects       (P3)
 hud/                 live HUD page (offline, no CDN)               (P4)
 report/              HTML session report from the CSVs             (P4)
-scripts/             Minecraft server setup                        (P3)
+scripts/             launcher braincraft.py, Minecraft server setup
+Makefile             shortcuts for the launcher (make start, make dev)
 docs/                architecture diagrams, setup guide
 sessions/            recordings and logs (git-ignored)
 ```
@@ -63,6 +64,15 @@ sessions/            recordings and logs (git-ignored)
 
 **Full setup for every service (Minecraft server and client, headset,
 EEG, game loop, HUD, report): [`docs/setup.md`](docs/setup.md).**
+
+Fastest: the launcher starts and stops everything in order
+([setup.md, fast path](docs/setup.md#fast-path-launcher-and-make)):
+
+```bash
+make setup ACCEPT_EULA=1    # deps + g.Pype + Minecraft server (accepts the Minecraft EULA)
+make start PLAYER=anna      # headset, calibration, Minecraft, service, HUD, game
+make dev                    # no hardware: HUD sliders + simulated game
+```
 
 Dependencies are managed with [Poetry](https://python-poetry.org/) 2.x.
 
