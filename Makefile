@@ -3,7 +3,6 @@
 # hand, e.g. `poetry run python scripts/braincraft.py start --eeg gpype`.
 # Variables: make start PLAYER=anna MODE=fun EEG=unicorn
 
-SYSPY   := $(if $(filter Windows_NT,$(OS)),python,python3)
 PY      := poetry run python
 RUN     := $(PY) scripts/braincraft.py
 EEG     ?= gpype      # gpype | unicorn | synthetic | mock
@@ -22,7 +21,8 @@ help:            ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
 
 setup:           ## poetry install + g.Pype; with ACCEPT_EULA=1 also the Minecraft server
-	$(SYSPY) scripts/braincraft.py setup $(if $(ACCEPT_EULA),--accept-eula)
+	poetry install --with gpype
+	$(RUN) setup $(if $(ACCEPT_EULA),--accept-eula)
 
 server:          ## set up the Minecraft 26.3 server; ACCEPT_EULA=1 accepts the Minecraft EULA
 	$(PY) scripts/setup_mc_server.py $(if $(ACCEPT_EULA),--accept-eula)

@@ -705,6 +705,14 @@ mode + HUD sliders; no Minecraft → `game_loop.py --sim`.
 
 ## 15. Troubleshooting
 
+**`Python was not found` / `nie znaleziono Python` / make `Error 9009`
+(Windows)** → `python` resolves to the Microsoft Store stub. The
+Makefile only calls `poetry`, so update the repo first. To make
+`python` work too: Settings → Apps → Advanced app settings → **App
+execution aliases** → turn off `python.exe` and `python3.exe`, and
+install Python from python.org with "Add python.exe to PATH" (or use
+`py`). Then open a new terminal.
+
 **RCON: connection refused** (`RconConnectionError … refused the
 connection`) → server not running or not ready (wait for
 `RCON running on`), `enable-rcon=true` missing, or the port differs from
