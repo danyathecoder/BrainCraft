@@ -416,7 +416,14 @@ def cmd_start(args) -> int:
         # 2. baseline for this player
         if args.eeg != "mock":
             base = baseline_path(args.player)
-            if args.recalibrate or not base.exists():
+            if args.skip_calibration and not args.recalibrate:
+                if base.exists():
+                    say(f"using baseline {base.relative_to(ROOT)}")
+                else:
+                    say("calibration skipped: the service takes a quick baseline from the "
+                        "first 30 clean seconds (not saved; less reliable)")
+                    service_env["BRAINCRAFT_CALIBRATION"] = "quick"
+            elif args.recalibrate or not base.exists():
                 run_calibration(args.eeg, base, lsl_name)
             else:
                 say(f"using baseline {base.relative_to(ROOT)} (--recalibrate for a new one)")
@@ -555,6 +562,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     st.add_argument("--mode", choices=("rehab", "fun"), default="rehab")
     st.add_argument("--player", default="player", help="whose baseline to use (sessions/baseline-<player>.json)")
     st.add_argument("--recalibrate", action="store_true", help="record a new baseline first")
+    st.add_argument("--skip-calibration", action="store_true",
+                    help="no 2.5 min protocol: use the player's saved baseline, or else a quick "
+                         "baseline from the first 30 clean seconds (not saved)")
     st.add_argument("--mc-name", action="append", default=[], metavar="USERNAME",
                     help="only let these Minecraft usernames join (repeatable); default: anyone")
     st.add_argument("--name", help="session name (default <player>-<mode>-<time>)")

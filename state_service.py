@@ -14,6 +14,8 @@ Brain-state sources (BRAINCRAFT_SOURCE):
 - "eeg": values come from eeg.pipeline.run(); its input is chosen with
   BRAINCRAFT_EEG_INPUT = "lsl" (headset or synthetic LSL stream,
   default) or "synthetic" (in-process generator, no LSL needed).
+  Without a baseline file it calibrates first; BRAINCRAFT_CALIBRATION=quick
+  uses the first 30 clean seconds instead (not saved).
 
 Run:  uvicorn state_service:app --port 8000
       BRAINCRAFT_SOURCE=eeg uvicorn state_service:app --port 8000

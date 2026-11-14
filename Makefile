@@ -11,11 +11,12 @@ MODE    ?= rehab      # rehab | fun
 PLAYER  ?= player
 DURATION ?= 600
 MC_NAME ?=            # optional: only these Minecraft usernames may join, e.g. MC_NAME="Steve Alex"
+SKIP_CAL ?=           # SKIP_CAL=1: no calibration protocol (quick 30 s baseline if none saved)
 ARGS    ?=            # extra flags for `start`, e.g. ARGS="--oscar --no-browser"
 
 START = $(RUN) start --eeg $(strip $(EEG)) --game $(strip $(GAME)) --mode $(strip $(MODE)) \
         --player $(strip $(PLAYER)) --duration $(strip $(DURATION)) \
-        $(foreach n,$(MC_NAME),--mc-name $(n)) $(ARGS)
+        $(foreach n,$(MC_NAME),--mc-name $(n)) $(if $(strip $(SKIP_CAL)),--skip-calibration) $(ARGS)
 
 .PHONY: help setup server doctor start dev demo-synthetic hud bridge check calibrate whitelist report test
 
@@ -43,7 +44,8 @@ demo-synthetic:  ## no headset: synthetic EEG + real Minecraft
 	    $(foreach n,$(MC_NAME),--mc-name $(n)) $(ARGS)
 
 hud:             ## headset + service + HUD only, no game
-	$(RUN) start --eeg $(strip $(EEG)) --game none --player $(strip $(PLAYER)) $(ARGS)
+	$(RUN) start --eeg $(strip $(EEG)) --game none --player $(strip $(PLAYER)) \
+	    $(if $(strip $(SKIP_CAL)),--skip-calibration) $(ARGS)
 
 bridge:          ## only the headset -> LSL bridge (with scope window)
 	$(PY) -m eeg.gpype_bridge --record sessions/raw

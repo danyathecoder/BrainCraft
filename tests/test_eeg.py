@@ -242,6 +242,26 @@ def test_pipeline_calibrates_without_baseline(tmp_path):
     assert any(st.quality == "ok" for st in states)
 
 
+def test_quick_baseline_without_protocol():
+    from eeg.calibrate import quick_baseline
+
+    msgs = []
+    with EEGStream("synthetic", seed=4, speed=60) as s:
+        base = quick_baseline(s, seconds=10, prompt=msgs.append)
+    assert base.meta["quick"] is True
+    assert all(base.n[k] == 10 and base.std[k] > 0 for k in base.mean)
+    assert any("skipped" in m for m in msgs)
+
+
+def test_pipeline_quick_calibration_is_not_saved(tmp_path):
+    states, th = _run_pipeline(tmp_path, 1.5, speed=60, calibration="quick",
+                               prompt=lambda m: None)
+    assert not th.is_alive()
+    assert not (tmp_path / "baseline.json").exists()
+    assert states[0].quality == "bad"
+    assert any(st.quality == "ok" for st in states)
+
+
 def test_pipeline_survives_bad_windows(tmp_path):
     _baseline_for(9).save(tmp_path / "baseline.json")
     stream = EEGStream("synthetic", seed=9).start()

@@ -30,6 +30,7 @@ make doctor                # what's installed / running (Java, server, LSL strea
 make start PLAYER=anna            # demo: bridge -> calibration (first time) -> Minecraft -> service -> HUD -> game
 make start PLAYER=anna MODE=fun   # fun mode
 make start PLAYER=anna MC_NAME=<username>   # optional: only this Minecraft account may join
+make start PLAYER=anna SKIP_CAL=1           # no calibration protocol (quick 30 s baseline if none saved)
 make hud PLAYER=anna              # headset + service + HUD, no game (signal checks)
 make dev                          # no hardware: HUD sliders + simulated game
 make demo-synthetic               # no headset: synthetic EEG + real Minecraft
@@ -534,6 +535,15 @@ check the electrodes at the back or the channel layout before going on.
   If rest phases never trigger with the real headset, lower the
   thresholds in `director/rehab.py` (`RehabParams.fatigue_z_threshold`,
   `engagement_z_low`).
+
+**Skipping calibration** (short on time, quick tests): `make start
+SKIP_CAL=1` (`--skip-calibration`) uses the player's saved baseline if
+there is one, and otherwise a **quick baseline**: the first 30 clean
+seconds of whatever the player is doing (signal quality shows `bad`
+meanwhile). It is never saved, has no eyes-closed check, and treats the
+state during those 30 s as "normal", so the z-scores are less
+meaningful. Without the launcher: `BRAINCRAFT_CALIBRATION=quick` for the
+state service. Use the full protocol for the real demo.
 
 **Check:** `sessions/baseline.json` exists; the state service in EEG
 mode shows z-scores around 0 at rest.

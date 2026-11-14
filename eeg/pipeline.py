@@ -37,9 +37,11 @@ from contracts import BrainState
 from eeg.calibrate import (
     DURATIONS,
     EMA_SECONDS,
+    QUICK_SECONDS,
     Baseline,
     CalibrationError,
     default_baseline_path,
+    quick_baseline,
     run_calibration,
 )
 from eeg.features import Analyzer
@@ -70,13 +72,19 @@ def run(
     calibration_durations: tuple[float, float, float] = DURATIONS,
     prompt: Callable[[str], None] | None = None,
     on_stream: Callable[[EEGStream], None] | None = None,
+    calibration: str | None = None,
     **stream_kwargs,
 ) -> None:
     """Publish BrainState every `period` s until `stop` is set. Never raises.
 
     `on_stream(stream)` is called once the EEG stream is running (the state
     service uses it to serve the raw signal to the HUD).
+
+    `calibration` (or BRAINCRAFT_CALIBRATION) applies only when there is no
+    baseline file: "full" runs the 2.5 min protocol and saves it (default),
+    "quick" skips it and uses the first QUICK_SECONDS clean seconds, unsaved.
     """
+    calibration = calibration or os.environ.get("BRAINCRAFT_CALIBRATION", "full")
     baseline_path = Path(baseline_path) if baseline_path else default_baseline_path()
     name = name or os.environ.get("BRAINCRAFT_LSL_NAME") or None
     prompt = prompt or (lambda msg: (print(msg, flush=True), log.info(msg)))
@@ -116,13 +124,21 @@ def run(
                     break
                 except Exception:
                     log.exception("baseline %s unreadable, recalibrating", baseline_path)
-            prompt(f"[eeg] no baseline at {baseline_path}: calibrating")
+            quick = calibration == "quick"
+            prompt(f"[eeg] no baseline at {baseline_path}: "
+                   f"{'quick baseline, calibration skipped' if quick else 'calibrating'}")
             publish(_bad(zero))
             try:
-                baseline = run_calibration(
-                    stream, prompt=prompt, durations=calibration_durations, window_s=window_s,
-                    stop=stop, on_tick=lambda *_: publish(_bad(zero)),
-                )
+                if quick:
+                    baseline = quick_baseline(
+                        stream, seconds=QUICK_SECONDS, prompt=prompt, window_s=window_s,
+                        stop=stop, on_tick=lambda *_: publish(_bad(zero)),
+                    )
+                else:
+                    baseline = run_calibration(
+                        stream, prompt=prompt, durations=calibration_durations, window_s=window_s,
+                        stop=stop, on_tick=lambda *_: publish(_bad(zero)),
+                    )
             except CalibrationError as e:
                 log.warning("calibration failed: %s (retrying)", e)
                 if stop.wait(RETRY_S):
@@ -133,7 +149,7 @@ def run(
                 if stop.wait(RETRY_S):
                     return
                 continue
-            if baseline is not None:
+            if baseline is not None and not baseline.meta.get("quick"):
                 try:
                     baseline.save(baseline_path)
                     prompt(f"[eeg] baseline saved to {baseline_path}")

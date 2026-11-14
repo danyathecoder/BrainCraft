@@ -209,6 +209,70 @@ def run_calibration(
     return base
 
 
+QUICK_SECONDS = 30  # clean seconds for a quick baseline
+QUICK_TIMEOUT_S = 120
+
+
+def quick_baseline(
+    stream,
+    seconds: int = QUICK_SECONDS,
+    prompt: Callable[[str], None] = print,
+    period: float = 1.0,
+    window_s: float = 4.0,
+    stop: threading.Event | None = None,
+    on_tick: Callable[[int], None] | None = None,
+) -> Baseline | None:
+    """Baseline from the first `seconds` clean seconds, no protocol.
+
+    For skipping calibration: the player just sits or starts playing.
+    Less reliable than run_calibration (no eyes-closed check, the state
+    while it is recorded becomes "normal"), so it is never saved.
+    Returns None if `stop` is set; raises CalibrationError without data.
+    """
+    stop = stop or threading.Event()
+    analyzer = Analyzer(fs=stream.fs)
+    step = max(int(round(period * stream.fs)), 1)
+    if not stream.wait_for_samples(int(window_s * stream.fs), timeout=window_s + 10):
+        if stop.is_set():
+            return None
+        raise CalibrationError("no EEG data arriving; check the stream")
+    prompt(f"[calibration] skipped: quick baseline from the next {seconds} clean seconds "
+           "(sit still or play normally)")
+    samples: dict[str, list[float]] = {k: [] for k in INDEX_NAMES}
+    start, tick, skipped = stream.total_samples, 0, 0
+    deadline = time.monotonic() + QUICK_TIMEOUT_S / max(getattr(stream, "speed", 1), 1)
+    while len(samples[INDEX_NAMES[0]]) < seconds:
+        tick += 1
+        got = stream.wait_for_samples(start + tick * step, timeout=period * 5 + 5)
+        if stop.is_set():
+            return None
+        if not got or time.monotonic() > deadline:
+            raise CalibrationError(f"only {len(samples[INDEX_NAMES[0]])} clean seconds "
+                                   f"({skipped} with artifacts); check electrodes")
+        if on_tick:
+            on_tick(tick)
+        try:
+            res = analyzer.step(*stream.windows(window_s))
+        except Exception:
+            log.exception("bad window, skipped")
+            skipped += 1
+            continue
+        if not res.ok:
+            skipped += 1
+            continue
+        for name in INDEX_NAMES:
+            samples[name].append(res.indices[name])
+    try:
+        base = compute_baseline(samples, meta={
+            "quick": True, "skipped_seconds": skipped, "created": time.time(),
+            "source": getattr(stream, "source", "?"), "index_units": "log10",
+        })
+    except ValueError as e:
+        raise CalibrationError(str(e)) from e
+    prompt(f"[calibration] quick baseline ready ({seconds} s, {skipped} artifact seconds skipped)")
+    return base
+
+
 def main(argv: list[str] | None = None) -> None:
     from eeg.stream import EEGStream
 
