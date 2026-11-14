@@ -22,21 +22,33 @@ flowchart LR
   end
 
   US -->|"LSL stream, 250 Hz"| SS
-  SS -->|"GET /state, 1 Hz"| GL
+  SS -->|"GET /state, GET /mode"| GL
+  GL -->|"POST /status, POST /decisions"| SS
   GL -->|"RCON commands:<br/>summon, title, time, playsound"| MS
   MS -->|"replies: target alive?, yaw"| GL
   MS <-->|"Minecraft protocol :25565"| MC
-  SS -->|"GET /state"| HUD
+  SS -->|"GET /state, /status, /decisions"| HUD
+  HUD -->|"POST /mode"| SS
   HUD -.->|"POST /mock, dev only"| SS
-  GL -->|"events + decisions"| CSV
+  GL -->|"events + state per second"| CSV
   CSV --> REP
 ```
+
+**Stand-ins without the hardware** (same interfaces, so only the source changes):
+
+| Missing | Stand-in | How |
+|---|---|---|
+| Headset | synthetic EEG | `python -m eeg.synthetic --lsl` (controllable from stdin) or `BRAINCRAFT_EEG_INPUT=synthetic` |
+| Any EEG | mock brain state | state service in mock mode, HUD sliders |
+| Minecraft | `mc/sim.py` `SimRcon` | `game_loop.py --sim`: a seeded player with a left-neglect profile |
+
+See [setup.md](setup.md) for how to run every piece.
 
 | Link | Protocol | Port |
 |---|---|---|
 | Headset → Unicorn Suite | Bluetooth | — |
 | Unicorn Suite → state service | LSL | network multicast (same machine is safest) |
-| State service → game loop, HUD | HTTP `GET /state` | 8000 |
+| State service ↔ game loop, HUD | HTTP: `/state`, `/status`, `/decisions`, `/mode` | 8000 |
 | Game loop ↔ Minecraft server | RCON (TCP), plain command text | 25575 |
 | Minecraft server ↔ client | normal multiplayer, join `localhost` | 25565 |
 

@@ -31,39 +31,51 @@ telling the team.
 - **`GET /state`** (~1 Hz): `t, engagement_z, fatigue_z, alpha_low_z,
   quality ("ok"|"bad"), artifact ("none"|"blink"|"jaw"|"motion"),
   jaw_clench`
-- **Events CSV** (`sessions/<session>.csv`): `t, event, target_id, side,
-  ecc_deg, rt_ms, value, reason`, where `event` is one of `spawn, hit,
-  miss, false_tag, rest_start, rest_end, decision, yaw`
+- **`GET/POST /status`** (`GameStatus`, game loop → HUD), **`/decisions`**
+  (director decisions with reasons), **`/mode`** (`rehab`|`fun`, HUD → game)
+- **Events CSV** (`sessions/<stamp>-<name>.csv`): `t, event, target_id,
+  side, ecc_deg, rt_ms, value, reason`, where `event` is one of `spawn,
+  found, hit, miss, false_tag, rest_start, rest_end, decision, yaw`
+- **State CSV** (`<same stem>-state.csv`): one `BrainState` row per second
 - Every director decision is logged with a human-readable `reason`.
 
 ## Layout
 
 ```
 contracts.py         shared data formats
-state_service.py     FastAPI: /state (mock or EEG), /mock, HUD   (P2)
-eeg/                 stream, features, calibration               (P1)
-director/            rehab and fun directors                     (P2)
-log/                 session event logger                        (P2)
-mc/                  RCON wrapper, world setup                   (P3)
-game/                target geometry and tracking                (P3)
-hud/                 live HUD page                               (P4)
-report/              session report from the events CSV          (P4)
+state_service.py     FastAPI hub: /state, /mock, /status, /decisions, /mode, HUD
+game_loop.py         runs a session: director + trials + effects   (P2/P3)
+eeg/                 synthetic EEG, stream, features, calibration,
+                     pipeline, signal check                        (P1)
+director/            rehab and fun directors                       (P2)
+log/                 session event + state logger                  (P2)
+mc/                  RCON client, world setup, SimRcon simulator   (P3)
+game/                geometry, trial runner, in-game effects       (P3)
+hud/                 live HUD page (offline, no CDN)               (P4)
+report/              HTML session report from the CSVs             (P4)
+scripts/             Minecraft server setup                        (P3)
+docs/                architecture diagrams, setup guide
 sessions/            recordings and logs (git-ignored)
 ```
 
 ## Quickstart
 
+**Full setup for every service (Minecraft server and client, headset,
+EEG, game loop, HUD, report): [`docs/setup.md`](docs/setup.md).**
+
 Dependencies are managed with [Poetry](https://python-poetry.org/) 2.x.
 
 ```bash
 poetry install                   # creates the venv, installs deps + dev group
-poetry add <package>             # add a dependency (commit poetry.lock too)
+poetry run pytest -q             # offline; live Minecraft tests are skipped
 
 # Mock brain state + HUD with sliders, no headset needed
 poetry run uvicorn state_service:app --port 8000
 # open http://localhost:8000
+
+# A whole rehab session without Minecraft or EEG, in seconds
+poetry run python game_loop.py --mode rehab --sim --no-service --duration 120 --speed 20 --fake-fatigue-at 20
+poetry run python -m report.make_report sessions/<file>.csv --open
 ```
 
-Minecraft: Java server with `enable-rcon=true`, `rcon.password` and
-`rcon.port=25575` in `server.properties`, superflat world. Connection
-settings live in `mc/config.py`.
+Add dependencies with `poetry add <package>` and commit `poetry.lock`.
