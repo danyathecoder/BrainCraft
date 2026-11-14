@@ -736,7 +736,7 @@ direction, and the director's decisions with reasons.
 By hand (e.g. after a crash, or for an older session):
 
 ```bash
-make report                                                       # latest session
+make report                                                       # every session without a report; opens the latest
 poetry run python -m report.make_report sessions/<file>.csv --open
 # options: --state FILE (other state CSV), --out FILE (default <file>-report.html)
 ```

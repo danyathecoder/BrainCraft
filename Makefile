@@ -65,7 +65,7 @@ calibrate:       ## new baseline for PLAYER
 whitelist:       ## allow MC_NAME to join the running Minecraft server
 	$(RUN) whitelist $(MC_NAME)
 
-report:          ## HTML report of the latest session
+report:          ## HTML reports for every session that has none yet; opens the latest
 	$(RUN) report
 
 test:            ## test suite

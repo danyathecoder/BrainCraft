@@ -268,10 +268,20 @@ def baseline_path(player: str) -> Path:
     return SESSIONS / f"baseline-{safe}.json"
 
 
-def latest_session() -> Path | None:
+def session_csvs() -> list[Path]:
+    """Events CSVs of all game sessions, oldest first."""
     csvs = [p for p in SESSIONS.glob("*.csv")
             if not p.stem.endswith("-state") and not p.name.startswith(("raw", "baseline"))]
-    return max(csvs, key=lambda p: p.stat().st_mtime) if csvs else None
+    return sorted(csvs, key=lambda p: p.stat().st_mtime)
+
+
+def latest_session() -> Path | None:
+    csvs = session_csvs()
+    return csvs[-1] if csvs else None
+
+
+def report_of(events_csv: Path) -> Path:
+    return events_csv.with_name(events_csv.stem + "-report.html")
 
 
 # --- commands ----------------------------------------------------------------
@@ -417,10 +427,29 @@ def cmd_whitelist(args) -> int:
 
 
 def cmd_report(args) -> int:
-    path = Path(args.session) if args.session else latest_session()
-    if not path:
+    """Given session: (re)build its report. Else: every session without one."""
+    if args.session:
+        return subprocess.call([PY, "-m", "report.make_report", args.session, "--open"], cwd=ROOT)
+    sessions = session_csvs()
+    if not sessions:
         die("no session CSV in sessions/")
-    return subprocess.call([PY, "-m", "report.make_report", str(path), "--open"], cwd=ROOT)
+    from report.make_report import make_report
+
+    made = []
+    for csv in sessions:
+        if not report_of(csv).exists():
+            try:
+                made.append(make_report(csv))
+                say(f"report: {made[-1].relative_to(ROOT)}")
+            except Exception as e:
+                say(f"could not build a report for {csv.name}: {e}")
+    if not made:
+        say(f"all {len(sessions)} sessions already have a report")
+    latest = report_of(sessions[-1])
+    if latest.exists() and not args.no_open:
+        webbrowser.open(latest.resolve().as_uri())
+    say(f"{len(sessions)} sessions, reports in {SESSIONS.relative_to(ROOT)}{os.sep}*-report.html")
+    return 0
 
 
 def _interrupt(*_):
@@ -662,8 +691,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     w = sub.add_parser("whitelist", help="allow Minecraft usernames to join the running server")
     w.add_argument("names", nargs="+")
 
-    r = sub.add_parser("report", help="HTML report of the latest (or given) session")
+    r = sub.add_parser("report", help="reports for all sessions without one (or rebuild the given one)")
     r.add_argument("session", nargs="?")
+    r.add_argument("--no-open", action="store_true", help="don't open the latest report")
 
     st = sub.add_parser("start", help="start the stack; Ctrl+C stops it")
     st.add_argument("--eeg", choices=("gpype", "unicorn", "synthetic", "mock"), default="gpype",
