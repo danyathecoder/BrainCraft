@@ -64,8 +64,8 @@ EVENT_TYPES = {
 STATE_FIELDS = list(BrainState.__dataclass_fields__)
 
 Side = Literal["L", "R"]
-Mode = Literal["rehab", "rehab_01", "fun"]
-MODES = ("rehab", "rehab_01", "fun")
+Mode = Literal["rehab", "fun"]
+MODES = ("rehab", "fun")
 
 
 @dataclass

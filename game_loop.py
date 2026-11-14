@@ -43,6 +43,7 @@ from mc import config
 from mc.rcon import RconError
 
 LOOP_HZ = 5.0
+KEEP_PLAYER_S = 5.0  # re-apply the movement lock (lost on death/respawn)
 STATE_FIELD_NAMES = {f.name for f in dc_fields(BrainState)}
 
 
@@ -258,6 +259,7 @@ def run_session(*, mode: str, rcon, logger, clock, duration_s: float, sim: bool 
     for d in director.start(t0):
         apply(d, t0)
     next_second = t0
+    next_keep = t0 + KEEP_PLAYER_S
     dt = 1.0 / hz
     try:
         rcon_failures = 0
@@ -278,6 +280,9 @@ def run_session(*, mode: str, rcon, logger, clock, duration_s: float, sim: bool 
                             apply(Decision("mode", {"mode": current},
                                            reason=f"HUD switched mode {old} → {current}"), now)
                             decisions += director.start(now)
+                    if now >= next_keep:  # the player can die: re-lock after a respawn
+                        next_keep = now + KEEP_PLAYER_S
+                        effects.keep_player()
                     state = read_state(now)
                     decisions += director.on_state(state, now)
                     logger.state(state)

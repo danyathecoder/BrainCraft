@@ -286,8 +286,8 @@ def test_two_minute_rehab_session(tmp_path):
     assert "time set 23000" in rcon.commands
 
 
-def test_rehab_01_right_side_then_ali_left(tmp_path):
-    """First minute is right-only; once ALI goes negative, new targets are on the left."""
+def test_rehab_warmup_right_then_ali_bias_left(tmp_path):
+    """Warm-up minute is right-only; a sustained negative ALI then favours the left."""
     from log.events import EventLogger
 
     class Brain:
@@ -297,36 +297,36 @@ def test_rehab_01_right_side_then_ali_left(tmp_path):
         def get(self, now):
             if self.t0 is None:
                 self.t0 = now
-            ali = 0.3 if now - self.t0 < 70 else -0.4
+            ali = 0.1 if now - self.t0 < 100 else -0.3
             return BrainState(t=now, ali=ali, quality="ok")
 
     t0 = 1_800_000_000.0
     clock = game_loop.SimClock(start=t0, speed=0)
     rcon = SimRcon(clock=clock.now, seed=3)
-    logger = EventLogger("test-rehab-01", directory=tmp_path)
-    game_loop.run_session(mode="rehab_01", rcon=rcon, logger=logger, clock=clock,
-                          duration_s=100, sim=True, brain=Brain(), out=lambda *_: None)
+    logger = EventLogger("test-rehab-ali", directory=tmp_path)
+    game_loop.run_session(mode="rehab", rcon=rcon, logger=logger, clock=clock,
+                          duration_s=300, sim=True, brain=Brain(), out=lambda *_: None)
     logger.close()
     events = read_csv(logger.path)
     spawns = [e for e in events if e["event"] == "spawn"]
-    assert len(spawns) >= 15
     assert all(e["side"] == "R" for e in spawns if float(e["t"]) - t0 < 60)
-    assert all(e["side"] == "L" for e in spawns if float(e["t"]) - t0 >= 74)
+    late = [e["side"] for e in spawns if float(e["t"]) - t0 >= 115]
+    assert late and late.count("L") / len(late) > 0.6
     reasons = [e["reason"] for e in events if e["event"] == "decision"]
-    assert any("watching ALI" in r for r in reasons)
-    assert any("only on the left" in r for r in reasons)
+    assert any("warm-up on the right over" in r for r in reasons)
+    assert sum("attention biased right" in r for r in reasons) == 1  # no flicker
     assert "ali" in read_csv(logger.state_path)[0]
 
 
-def test_two_minute_session_with_misses(tmp_path):
+def test_session_with_misses(tmp_path):
     from log.events import EventLogger
 
     clock = game_loop.SimClock(start=1_800_000_000.0, speed=0)
     rcon = SimRcon(clock=clock.now, seed=7, profile=NeglectProfile(p_left_by_ecc=((0, 0.3), (90, 0.1))))
     logger = EventLogger("test-miss", directory=tmp_path)
-    # Unhit targets live 60 s and only one is up, so a two-minute session
-    # cannot finish three misses.
-    game_loop.run_session(mode="rehab", rcon=rcon, logger=logger, clock=clock, duration_s=360,
+    # Unhit targets live 60 s, only one is up, and the first minute is a
+    # right-side warm-up, so a left staircase step needs a long session.
+    game_loop.run_session(mode="rehab", rcon=rcon, logger=logger, clock=clock, duration_s=1200,
                           sim=True, brain=game_loop.FakeBrain(seed=2), out=lambda *_: None)
     events = read_csv(logger.path)
     kinds = [e["event"] for e in events]

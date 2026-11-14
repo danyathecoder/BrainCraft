@@ -1,14 +1,26 @@
-"""Rehab mode director: spatial staircase + fatigue pacing.
+"""Rehab mode director: one mode, four signals with one job each.
 
 Visual scanning training inspired by therapy for post-stroke spatial
 neglect (left side neglected). Pure logic: time is passed in.
 
-Trials: one target at a time. An unhit target lives 60 s, then the
-next appears 4 s after that miss. A hit brings the next target in 1 s.
-Side drawn with p_left (start 0.5). Right targets stay at a fixed
-moderate eccentricity (`right_ecc_deg`, 35 deg) as a stable control
-condition, so left/right differences in the report reflect the left
-staircase, not a moving right target.
+  warm-up      the first `warmup_s` (60 s): targets on the right only,
+               so the player starts with successes;
+  brain: side  ALI (alpha lateralization vs the player's own baseline)
+               below `ali_on` for `ali_hold_s` -> "rightward bias":
+               p_left + `ali_p_left_boost`; back above `ali_off` for
+               `ali_hold_s` -> bias off. Hysteresis + `ali_min_dwell_s`
+               keep it from flickering; bad-quality seconds don't count;
+  performance: how far   the left eccentricity staircase (below) + cues;
+  brain: when to rest    fatigue / low engagement -> rest phase (below).
+
+Trials: one target at a time. An unhit target lives `target_lifetime_s`
+(60 s: time to search the whole scene; meanwhile the skeleton shoots,
+so ignoring the left side has a cost, and the player can die); the
+next appears `spawn_interval_s` after a miss, or `hit_gap_s` (1 s)
+after a hit. Side drawn with the effective p_left.
+Right targets stay at a fixed moderate eccentricity (`right_ecc_deg`)
+as a stable control condition, so left/right differences in the report
+reflect the left staircase, not a moving right target.
 
 Spatial staircase (behaviour-driven), over the last 5 LEFT targets:
   >= 4 hits -> left eccentricity +1 step, p_left +0.1 (max 0.7), cues off
@@ -46,6 +58,13 @@ class RehabParams:
     max_active: int = 1
     target_lifetime_s: float = 60.0  # how long an unhit target stays
     lead_in_s: float = 2.0  # first spawn after session start
+    warmup_s: float = 60.0  # right-side targets only
+    ali_on: float = -0.05  # ALI vs own baseline below this -> rightward bias
+    ali_off: float = 0.0  # ...and back above this -> bias over
+    ali_hold_s: float = 10.0  # good-quality seconds the condition must hold
+    ali_min_dwell_s: float = 20.0  # no switch sooner than this after the last
+    ali_p_left_boost: float = 0.3
+    ali_p_left_max: float = 0.9
     p_left: float = 0.5
     p_left_step: float = 0.1
     p_left_max: float = 0.7
@@ -85,6 +104,13 @@ class RehabDirector:
         self.engagement_timer = HoldTimer(self.p.engagement_hold_s)
         self.rest_until: float | None = None
         self.last_rest_end: float | None = None
+        self.ali_bias = False
+        self.ali: float | None = None
+        self.ali_on_timer = HoldTimer(self.p.ali_hold_s)
+        self.ali_off_timer = HoldTimer(self.p.ali_hold_s)
+        self._ali_switch: float | None = None
+        self._t0: float | None = None
+        self._warm = True
         self._last_spawn: float | None = None
         self._last_end: float | None = None
         self._next_ok: float | None = None
@@ -104,25 +130,77 @@ class RehabDirector:
     def cues_on(self) -> bool:
         return self.cues_left > 0
 
+    @property
+    def warming_up(self) -> bool:
+        return self._warm
+
+    @property
+    def p_left_effective(self) -> float:
+        """Chance of a left target now: 0 in the warm-up, boosted by ALI bias."""
+        if self._warm:
+            return 0.0
+        if self.ali_bias:
+            return round(min(self.p_left + self.p.ali_p_left_boost, self.p.ali_p_left_max), 2)
+        return self.p_left
+
     def status(self) -> dict:
         return {
             "mode": self.mode,
             "resting": self.resting,
             "spawn_interval_s": self.spawn_interval_s,
-            "p_left": round(self.p_left, 2),
+            "p_left": round(self.p_left_effective, 2),
             "left_ecc_deg": float(self.left_ecc_deg),
+            "warmup": self._warm,
+            "ali_bias": self.ali_bias,
+            "ali": None if self.ali is None else round(self.ali, 3),
         }
 
     # --- interface ------------------------------------------------------
 
     def start(self, now: float) -> list[Decision]:
+        self._t0 = now
         self._next_ok = now + self.p.lead_in_s
+        self._warm = self.p.warmup_s > 0
         return [Decision("rehab_start", self.status() | {"right_ecc_deg": self.p.right_ecc_deg},
-                         reason=(f"rehab session: one target at a time, "
-                                 f"next after {self.spawn_interval_s:.1f} s if not hit "
-                                 f"or {self.p.hit_gap_s:.1f} s after a hit, "
+                         reason=(f"rehab session: {self.p.warmup_s:g} s warm-up on the right, then "
                                  f"p_left {self.p_left:.1f}, left targets at {self.left_ecc_deg}°, "
-                                 f"right targets at {self.p.right_ecc_deg:g}°"))]
+                                 f"right at {self.p.right_ecc_deg:g}°; one target at a time, "
+                                 f"{self.p.target_lifetime_s:g} s to find it"))]
+
+    def _check_warmup(self, now: float) -> list[Decision]:
+        if not self._warm or self._t0 is None or now - self._t0 < self.p.warmup_s:
+            return []
+        self._warm = False
+        return [Decision("warmup_end", {"p_left": self.p_left_effective},
+                         reason=(f"{self.p.warmup_s:g} s warm-up on the right over → targets on "
+                                 f"both sides, p_left {self.p_left_effective:.1f}"))]
+
+    def _update_ali(self, state: BrainState, now: float, ok: bool) -> list[Decision]:
+        """Rightward-bias state from ALI, with hysteresis and a minimum dwell."""
+        ali = getattr(state, "ali", None)
+        valid = ok and ali is not None
+        if valid:
+            self.ali = float(ali)
+        on = self.ali_on_timer.update(valid and ali < self.p.ali_on, now, valid)
+        off = self.ali_off_timer.update(valid and ali > self.p.ali_off, now, valid)
+        if self._warm or not valid:  # switch only on a fresh, good-quality ALI
+            return []
+        dwell_ok = self._ali_switch is None or now - self._ali_switch >= self.p.ali_min_dwell_s
+        if not self.ali_bias and on and dwell_ok:
+            self.ali_bias, self._ali_switch = True, now
+            self.ali_off_timer.reset()
+            return [Decision("ali_bias_on", {"ali": round(self.ali, 3), "p_left": self.p_left_effective},
+                             reason=(f"ALI {self.ali:+.2f} < {self.p.ali_on:+.2f} for "
+                                     f"{self.p.ali_hold_s:g} s (attention biased right) → more left "
+                                     f"targets, p_left {self.p_left_effective:.1f}"))]
+        if self.ali_bias and off and dwell_ok:
+            self.ali_bias, self._ali_switch = False, now
+            self.ali_on_timer.reset()
+            return [Decision("ali_bias_off", {"ali": round(self.ali, 3), "p_left": self.p_left_effective},
+                             reason=(f"ALI {self.ali:+.2f} > {self.p.ali_off:+.2f} for "
+                                     f"{self.p.ali_hold_s:g} s (bias gone) → p_left back to "
+                                     f"{self.p_left_effective:.1f}"))]
+        return []
 
     def _drain(self) -> list[Decision]:
         out, self._pending = self._pending, []
@@ -196,11 +274,13 @@ class RehabDirector:
     def on_state(self, state: BrainState, now: float) -> list[Decision]:
         """Called about once per second with the latest brain state."""
         out = self._drain()
+        out += self._check_warmup(now)
         if self.resting:
             if now >= self.rest_until:
                 out += self._end_rest(now)
             return out
         ok = state.quality == "ok"
+        out += self._update_ali(state, now, ok)
         fatigued = self.fatigue_timer.update(state.fatigue_z > self.p.fatigue_z_threshold, now, ok)
         disengaged = self.engagement_timer.update(state.engagement_z < self.p.engagement_z_low, now, ok)
         refractory = (self.last_rest_end is not None
@@ -276,11 +356,16 @@ class RehabDirector:
         """
         if self._next_ok is None:
             self._next_ok = now + self.p.lead_in_s
+        if self._t0 is None:
+            self._t0 = now
+        self._pending.extend(self._check_warmup(now))
         if self.resting or n_active >= self.p.max_active or now < self._next_ok:
             return []
         self._last_spawn = now
         self._next_ok = now + self.spawn_interval_s
-        if self.rng.random() < self.p_left:
+        if self._warm:  # warm-up: right side, any eccentricity, for early successes
+            return [self._spec("R", self.rng.choice(self.ecc))]
+        if self.rng.random() < self.p_left_effective:
             cued = self.cues_left > 0
             if cued:
                 self.cues_left -= 1

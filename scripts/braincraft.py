@@ -3,7 +3,7 @@
     python scripts/braincraft.py setup [--accept-eula] [--no-gpype]
     poetry run python scripts/braincraft.py doctor
     poetry run python scripts/braincraft.py start [--eeg gpype|unicorn|synthetic|mock]
-                                               [--game rcon|sim|none] [--mode rehab|rehab_01|fun]
+                                               [--game rcon|sim|none] [--mode rehab|fun]
                                                [--player NAME] [--recalibrate]
     poetry run python scripts/braincraft.py check | calibrate | report
 
@@ -747,7 +747,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                          "synthetic: generated EEG; mock: HUD sliders (default gpype)")
     st.add_argument("--game", choices=("rcon", "sim", "none"), default="rcon",
                     help="rcon: real Minecraft (started if needed); sim: simulated; none: no game loop")
-    st.add_argument("--mode", choices=("rehab", "rehab_01", "fun"), default="rehab")
+    st.add_argument("--mode", choices=("rehab", "fun"), default="rehab")
     st.add_argument("--player", default="player", help="whose baseline to use (sessions/baseline-<player>.json)")
     st.add_argument("--recalibrate", action="store_true", help="record a new baseline first")
     st.add_argument("--skip-calibration", action="store_true",

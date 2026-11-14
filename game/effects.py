@@ -71,12 +71,10 @@ WAVE_SOUND = "minecraft:event.raid.horn"
 
 _MODE_SUBTITLE = {
     "rehab": "Rehab: scan left and right",
-    "rehab_01": "Rehab 01: right side, then the whole view",
     "fun": "Fun: hold your ground",
 }
 _MODE_SWITCH = {
     "rehab": "Rehab mode",
-    "rehab_01": "Rehab 01",
     "fun": "Fun mode",
 }
 
@@ -165,6 +163,14 @@ class Effects:
         self.cmd(f"give {p} minecraft:arrow 64")
         self.cmd(subtitle_cmd(_MODE_SUBTITLE.get(mode, mode), player=p))
         self.cmd(title_cmd("BrainCraft", "gold", player=p))
+
+    def keep_player(self) -> None:
+        """Re-apply the movement lock and food; after a death and respawn
+        Minecraft resets player attributes. Idempotent, called every few s."""
+        p = self.player
+        for c in lock_movement_cmds(p):
+            self.cmd(c)
+        self.cmd(f"effect give {p} minecraft:saturation infinite 0 true")
 
     def session_end(self) -> None:
         self.clear_entities()
