@@ -7,7 +7,8 @@ and common errors.
 > **Status (2026-11-14):** the commands in sections 3, 4 and 7–13 were
 > run and checked: the Minecraft parts against a real headless 26.3
 > server, the EEG parts against synthetic EEG only. Not tested yet: the
-> real Unicorn headset (section 6), the Minecraft client (section 5) and
+> real Unicorn headset (section 6; the g.Pype bridge was checked with
+> g.Pype's own test generator), the Minecraft client (section 5) and
 > Windows. If a command fails, run it with `--help` and fix this page.
 
 ---
@@ -15,23 +16,24 @@ and common errors.
 ## 1. Overview
 
 ```
-Unicorn headset --Bluetooth--> Unicorn Suite (Unicorn LSL) --LSL--> state_service :8000 --HTTP--> game_loop.py --RCON :25575--> Minecraft server <--:25565-- Minecraft client
+Unicorn headset --Bluetooth--> eeg.gpype_bridge (or Unicorn LSL app) --LSL--> state_service :8000 --HTTP--> game_loop.py --RCON :25575--> Minecraft server <--:25565-- Minecraft client
                                                                           \--> HUD in browser (localhost:8000)
 ```
 
 **Which machine runs what**
 
-- **Demo laptop (Windows):** everything. Unicorn Suite only runs on
-  Windows, and LSL is most reliable on a single machine, so headset,
-  state service, game loop, Minecraft server, Minecraft client and HUD
-  all run on this one laptop.
+- **Demo laptop:** everything. LSL is most reliable on a single machine,
+  so headset reader, state service, game loop, Minecraft server,
+  Minecraft client and HUD all run on this one laptop. With the g.Pype
+  bridge it can be **Windows x64, an Apple-silicon Mac or Linux x86-64**;
+  the Unicorn Suite fallback needs **Windows**.
 - **Teammates' laptops (any OS):** develop with the state service in
   **mock** mode (HUD sliders instead of EEG), synthetic EEG, and the game
   loop in **simulation** mode (no Minecraft needed). A local Minecraft
   server is optional.
 
 **Start order (demo):** Minecraft server → `mc.world` → client joins →
-headset + Unicorn LSL → `eeg.check` → calibration → state service (EEG)
+headset + `eeg.gpype_bridge` → `eeg.check` → calibration → state service (EEG)
 → HUD → game loop → report afterwards. Full list in
 [section 14](#14-demo-day-checklist).
 
@@ -52,7 +54,8 @@ headset + Unicorn LSL → `eeg.check` → calibration → state service (EEG)
 | Git | any | the repo |
 | Java | **25** for Minecraft 26.3 (verified from Mojang's version JSON; the setup script checks it) | Minecraft server |
 | Minecraft Java Edition licence | one per laptop that plays | Minecraft client, `online-mode=true` server |
-| Unicorn Suite (g.tec) | current | headset → LSL, **Windows only** |
+| g.Pype (g.tec), via `poetry install --with gpype` | 4.2.0 | headset → LSL (section 6.2): Windows x64, macOS arm64 (macOS 14+), Linux x86-64 |
+| Unicorn Suite (g.tec) | current | fallback headset → LSL (section 6.3), **Windows only** |
 
 **Python + Poetry**
 
@@ -85,7 +88,16 @@ poetry install          # creates .venv, installs deps + dev group
 poetry run pytest -q    # all tests offline; Minecraft live tests are skipped
 ```
 
-**Check:** pytest ends with `N passed, M skipped`.
+On the laptop the headset connects to, also install the optional g.Pype
+group (headset driver, LSL, Qt window; several hundred MB):
+
+```bash
+poetry install --with gpype
+```
+
+**Check:** pytest ends with `N passed, M skipped`. With the gpype group
+installed, `tests/test_gpype_bridge.py` also runs a real g.Pype → LSL →
+`EEGStream` round trip.
 
 **Common errors**
 
@@ -278,9 +290,85 @@ real account).
 
 ## 6. EEG headset (g.tec Unicorn Hybrid Black)
 
-8-channel EEG headset, Bluetooth, 250 Hz. g.tec's **Unicorn Suite**
-(Windows) includes the **Unicorn LSL** app that publishes the signal as
-a Lab Streaming Layer (LSL) stream, which `eeg/` reads.
+8-channel EEG headset, Bluetooth, 250 Hz. Something has to read it and
+publish the raw samples as a Lab Streaming Layer (LSL) stream, which the
+state service reads. Two ways, same stream layout, so nothing
+downstream changes:
+
+| | Reader | OS | Use |
+|---|---|---|---|
+| **A** | `eeg/gpype_bridge.py` (g.tec's g.Pype SDK) | Windows x64, macOS arm64, Linux x86-64 | default |
+| **B** | Unicorn Suite + Unicorn LSL app | Windows | fallback if A fails |
+
+The reader is a **separate process** on purpose: after a Bluetooth drop
+you restart only the reader; the state service, HUD and game keep
+running (the HUD shows STALE meanwhile). See
+[architecture.md](architecture.md).
+
+### 6.1 Fit the headset
+
+1. Charge it; turn it on.
+2. Fit the cap: electrodes in contact with the scalp, ear-clip
+   references on both mastoids. If the signal is poor with dry contact,
+   use electrode gel.
+3. Give the electrodes a few minutes to settle before calibrating
+   (the first minutes drift).
+
+### 6.2 Option A: g.Pype bridge (default)
+
+Install once (section 3): `poetry install --with gpype`. No licence and
+no Unicorn Suite needed (g.Pype 4.2.0; free for non-commercial use).
+
+**Pair the headset**
+
+- **Windows:** Settings → Bluetooth & devices → Add device → Bluetooth →
+  pick `UN-XXXX.XX.XX` (serial on the headset). Required before the
+  bridge can open it.
+- **macOS (Apple silicon, macOS 14+):** no manual pairing documented;
+  the first run asks for **Bluetooth permission** for your terminal
+  (System Settings → Privacy & Security → Bluetooth → allow Terminal /
+  iTerm / VS Code). Restart the terminal after allowing it.
+
+**Run** (in its own terminal, in the foreground; don't start it with `&`):
+
+```bash
+poetry run python -m eeg.gpype_bridge
+```
+
+A g.Pype window opens with a live scope of the 8 EEG channels (filtered
+1–30 Hz for display only; LSL gets the raw signal). Expected output:
+
+```
+Unicorn Hybrid Black -> LSL stream 'BrainCraft-Unicorn' (type EEG, 250 Hz)
+Streaming. Close the window or press Ctrl+C to stop.
+```
+
+Use the scope to check the fit: blinks show as big slow deflections on
+Fz, jaw clench as dense high-frequency noise everywhere, a flat or
+railing trace is a bad electrode.
+
+| Option | What |
+|---|---|
+| `--record sessions/raw` | also write raw samples to `sessions/raw_<timestamp>.csv` (keep these: offline threshold tuning) |
+| `--serial UN-...` | pick a headset when several are paired (default: first one) |
+| `--name X` | LSL stream name (default `BrainCraft-Unicorn`); then set `BRAINCRAFT_LSL_NAME=X` for `eeg.check`, calibration and the state service |
+| `--oscar` | g.tec OSCAR artifact removal. Calibrate and play with the **same** setting, or the baseline won't match |
+| `--test-signal` | the device's built-in test signal instead of electrodes (checks Bluetooth and the pipeline) |
+| `--fake` | no headset: g.Pype sine generator (plumbing test only; for realistic data use section 7) |
+| `--no-scope` | window without the scope (less CPU) |
+| `--headless` | no window; **Windows/Linux only** (on macOS the Unicorn driver needs the window's event loop) |
+
+Stream columns (the layout `eeg/layout.py` expects, so no
+`BRAINCRAFT_EEG_COLS` / `BRAINCRAFT_GYRO_COLS` needed): 0–7 EEG (µV) Fz,
+C3, Cz, C4, Pz, PO7, Oz, PO8; 8–10 accelerometer (g); 11–13 gyroscope
+(deg/s); 14 battery (%); 15 counter; 16 validation. g.Pype may append an
+arrival-stamp column 17; it is ignored.
+
+Without a headset you can check the bridge with
+`poetry run python -m eeg.gpype_bridge --fake`, then
+`poetry run python -m eeg.check` in a second terminal.
+
+### 6.3 Option B: Unicorn Suite + Unicorn LSL (Windows fallback)
 
 > We have not used Unicorn Suite yet. Every UI step below: **verify
 > against g.tec's Unicorn Suite documentation.**
@@ -290,27 +378,40 @@ a Lab Streaming Layer (LSL) stream, which `eeg/` reads.
    LSL** app from inside the Suite if it isn't there. *(verify)*
 2. Plug in the **Unicorn Bluetooth dongle** (use it rather than the
    laptop's built-in Bluetooth). *(verify)*
-3. Turn the headset on; pair it if asked (the device name/serial is on
-   the headset). *(verify)*
-4. Fit the cap: electrodes in contact with the scalp, ear-clip
-   references on both mastoids. If the signal is poor with dry contact,
-   use electrode gel.
-5. Open **Unicorn LSL** → select the device → **Open** → **Start**
+3. Turn the headset on; pair it if asked. *(verify)*
+4. Open **Unicorn LSL** → select the device → **Open** → **Start**
    streaming. *(verify)*
 
-**Check:**
+Only one program can hold the headset: stop the g.Pype bridge first.
+If the Unicorn LSL columns differ from the layout above, set
+`BRAINCRAFT_EEG_COLS` / `BRAINCRAFT_GYRO_COLS` (see `eeg/layout.py`).
+
+### 6.4 Check (both options)
 
 ```bash
-poetry run python -c "from eeg.stream import list_streams; list_streams()"
+poetry run python -m eeg.stream
 ```
 
-Expected: one EEG stream from the Unicorn listed. Then run the signal
-check in [section 8](#8-signal-sanity-check).
+Expected: one EEG stream listed (`'BrainCraft-Unicorn' type='EEG'
+channels= 17 srate=250` for option A). Then run the signal check in
+[section 8](#8-signal-sanity-check).
 
-**Common errors:** no stream listed → see "LSL stream not found" in
-[section 15](#15-troubleshooting). Flat or very noisy channels → refit
-electrodes, add gel, keep the dongle close, ask the player to relax the
-jaw.
+**Common errors**
+
+- `g.Pype is not installed` → `poetry install --with gpype`.
+- `No Unicorn device available. Please pair with a Unicorn first.` →
+  headset off, out of range, not paired (Windows), or no Bluetooth
+  permission for the terminal (macOS).
+- `already open in this process` / device busy → another program (the
+  Unicorn Suite, a second bridge) holds the headset; close it.
+- Read errors on macOS mentioning the run loop → you used `--headless`
+  or the window was closed; run without `--headless`.
+- Bridge exits after a few failed reads (Bluetooth drop) → move closer,
+  restart the bridge; the state service picks the stream up again.
+- No stream listed → see "LSL stream not found" in
+  [section 15](#15-troubleshooting).
+- Flat or very noisy channels → refit electrodes, add gel, ask the
+  player to relax the jaw.
 
 ---
 
@@ -525,8 +626,9 @@ Arrive early; do it in this order.
 4. [ ] **Client:** launch 26.3 → Direct Connection `localhost`. FOV 70,
        render distance 8, Pause on Lost Focus OFF (F3+P), fullscreen.
        Run `python -m mc.world` again → player on the tower with a bow.
-5. [ ] **Headset:** dongle in, headset on and fitted, Unicorn LSL
-       streaming.
+5. [ ] **Headset:** on and fitted, then in its own terminal
+       `poetry run python -m eeg.gpype_bridge --record sessions/raw`
+       (fallback: Unicorn LSL streaming). Scope shows clean traces.
 6. [ ] **Signal:** `poetry run python -m eeg.check` → eyes-closed alpha
        jump at Oz/PO7/PO8.
 7. [ ] **Calibration:** `poetry run python -m eeg.calibrate --out sessions/baseline.json` (2.5 min).
@@ -563,8 +665,9 @@ matters in commands). Join first; `mc.world` skips player steps until
 then.
 
 **LSL stream not found** → run everything on the **same laptop**; LSL
-uses multicast, which venue Wi-Fi often blocks. Check Unicorn LSL is
-actually streaming (started, not just opened). Allow Python through the
+uses multicast, which venue Wi-Fi often blocks. Check the reader is
+actually streaming (bridge printed `Streaming.`; Unicorn LSL started,
+not just opened). Allow Python through the
 Windows firewall (private networks). Close other apps holding the
 headset. Test the pipeline with `eeg.synthetic --lsl`.
 
@@ -581,8 +684,9 @@ set `GROUND_Y` in `mc/config.py` (superflat default: -60).
 
 **HUD shows STALE** → `/state` timestamp isn't updating: the state
 service crashed or (EEG mode) the LSL stream stopped. Check the
-uvicorn terminal, restart Unicorn LSL streaming, or fall back to mock
-mode.
+uvicorn terminal, restart the bridge (or Unicorn LSL streaming), or
+fall back to mock mode.
 
-**Targets burn at dawn** (rest phase) → zombies burn in daylight; set
-`MC_TARGET_ENTITY=minecraft:husk` (looks similar, doesn't burn).
+**Targets burn at dawn** (rest phase) → zombies burn in daylight. The
+default target is `minecraft:husk`, which doesn't; check
+`MC_TARGET_ENTITY` isn't set to a zombie.

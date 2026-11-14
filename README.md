@@ -45,8 +45,9 @@ telling the team.
 contracts.py         shared data formats
 state_service.py     FastAPI hub: /state, /mock, /status, /decisions, /mode, HUD
 game_loop.py         runs a session: director + trials + effects   (P2/P3)
-eeg/                 synthetic EEG, stream, features, calibration,
-                     pipeline, signal check                        (P1)
+eeg/                 headset bridge (g.Pype -> LSL), synthetic EEG,
+                     stream, features, calibration, pipeline,
+                     signal check                                  (P1)
 director/            rehab and fun directors                       (P2)
 log/                 session event + state logger                  (P2)
 mc/                  RCON client, world setup, SimRcon simulator   (P3)
@@ -67,11 +68,15 @@ Dependencies are managed with [Poetry](https://python-poetry.org/) 2.x.
 
 ```bash
 poetry install                   # creates the venv, installs deps + dev group
+poetry install --with gpype      # + headset bridge (laptop with the headset)
 poetry run pytest -q             # offline; live Minecraft tests are skipped
 
 # Mock brain state + HUD with sliders, no headset needed
 poetry run uvicorn state_service:app --port 8000
 # open http://localhost:8000
+
+# Headset -> LSL (own terminal), see docs/setup.md section 6
+poetry run python -m eeg.gpype_bridge
 
 # A whole rehab session without Minecraft or EEG, in seconds
 poetry run python game_loop.py --mode rehab --sim --no-service --duration 120 --speed 20 --fake-fatigue-at 20

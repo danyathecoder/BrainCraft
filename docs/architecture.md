@@ -4,14 +4,16 @@ How the BrainCraft applications communicate and how the game loop works.
 GitHub renders the Mermaid diagrams below.
 
 ## How the applications talk
-Everything runs on **one demo laptop** (Windows, because of Unicorn Suite). During development, everyone else runs `state_service.py` in **mock mode**, with HUD sliders instead of the headset.
+Everything runs on **one demo laptop** (Windows x64, an Apple-silicon Mac or Linux x86-64 with the g.Pype bridge; Windows if we fall back to Unicorn Suite). During development, everyone else runs `state_service.py` in **mock mode**, with HUD sliders instead of the headset.
 
 ```mermaid
 flowchart LR
   H["Unicorn headset<br/>8-ch EEG"] -->|"Bluetooth"| US
+  H -.->|"Bluetooth, fallback"| UL
 
   subgraph Laptop["Demo laptop"]
-    US["Unicorn Suite<br/>Unicorn LSL app"]
+    US["eeg/gpype_bridge.py<br/>g.Pype, own process"]
+    UL["Unicorn Suite<br/>Unicorn LSL app, Windows"]
     SS["state_service.py<br/>FastAPI :8000<br/>EEG pipeline eeg/"]
     GL["Game loop, Python<br/>director/ + game/ + log/"]
     MS["Minecraft server<br/>server.jar or Paper<br/>RCON :25575"]
@@ -22,6 +24,7 @@ flowchart LR
   end
 
   US -->|"LSL stream, 250 Hz"| SS
+  UL -.->|"LSL stream, 250 Hz"| SS
   SS -->|"GET /state, GET /mode"| GL
   GL -->|"POST /status, POST /decisions"| SS
   GL -->|"RCON commands:<br/>summon, title, time, playsound"| MS
@@ -42,12 +45,17 @@ flowchart LR
 | Any EEG | mock brain state | state service in mock mode, HUD sliders |
 | Minecraft | `mc/sim.py` `SimRcon` | `game_loop.py --sim`: a seeded player with a left-neglect profile |
 
+**Why the headset reader is a separate process:** the state service only reads the LSL stream (its `eeg/` pipeline runs in a background thread). The reader runs on its own, so:
+- after a Bluetooth drop, only the reader restarts, while the HUD, game loop and Minecraft session keep running;
+- on macOS, g.Pype needs the main thread's event loop, which uvicorn already owns in the state service;
+- LSL allows several readers at once: `eeg.check`, LabRecorder or a viewer can watch the same stream during a game, and the fallback reader (Unicorn LSL app or `eeg.synthetic --lsl`) needs no code change.
+
 See [setup.md](setup.md) for how to run every piece.
 
 | Link | Protocol | Port |
 |---|---|---|
-| Headset → Unicorn Suite | Bluetooth | — |
-| Unicorn Suite → state service | LSL | network multicast (same machine is safest) |
+| Headset → reader (g.Pype bridge, or Unicorn Suite) | Bluetooth | — |
+| Reader → state service | LSL, stream `BrainCraft-Unicorn`, type `EEG` | network multicast (same machine is safest) |
 | State service ↔ game loop, HUD | HTTP: `/state`, `/status`, `/decisions`, `/mode` | 8000 |
 | Game loop ↔ Minecraft server | RCON (TCP), plain command text | 25575 |
 | Minecraft server ↔ client | normal multiplayer, join `localhost` | 25565 |
