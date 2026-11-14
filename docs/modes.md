@@ -182,7 +182,40 @@ flowchart LR
 | 4 maximum | 1.5 s | 3 | 45° | 40 % | 25 % | yes |
 
 - **Side:** left/right 50/50.
-- **Lifetimes:** still target **6 s** (`TARGET_LIFETIME_S`), walking skeleton 14 s, sheep 8 s.
+- **Lifetimes:** still target **6 s** (`TARGET_LIFETIME_S`), walking mob 14 s, sheep 8 s. Tougher enemies get their own, longer lifetime (table below).
+
+**Enemies get tougher** (`mc/enemies.py`). All of them shoot and can kill
+the player:
+
+| Tier | Enemy | Threat | HP | Gear | Lifetime | Unlocks after |
+|---|---|---|---|---|---|---|
+| 0 | Skeleton | arrows | 1 | bow + helmet | 6 s | start |
+| 1 | Stray | arrows of Slowness | 6 | bow + helmet | 8 s | 1.5 min |
+| 2 | Bogged | arrows of Poison | 10 | bow + helmet | 9 s | 3 min |
+| 3 | Pillager | crossbow bolts | 16 | crossbow | 10 s | 4.5 min |
+| 4 | Blaze | fireballs, sets you on fire | 20 | — (fire immune) | 12 s | 6 min |
+
+- **The toughest allowed tier is `min(level, time unlock)`.** Every game
+  starts with skeletons. A bored player (level up) meets tougher enemies,
+  but never before their unlock time. An engaged player at level 0 keeps
+  skeletons.
+- **Each spawn is the newest allowed tier half the time,** otherwise a
+  lower one, for variety. This applies to still targets, walking mobs and
+  waves.
+- **When a tier is first reached,** an `enemy_unlock` decision fires: the
+  title "New enemy!" plus its threat. Dropping a level lowers the cap
+  without re-announcing.
+- **Undead** (skeleton, stray, bogged) wear an unbreakable helmet so they
+  don't burn at dawn. Health is set as the `max_health` attribute plus
+  `Health`.
+- **Logging:** spawn, hit and miss events log the enemy: `target:stray`,
+  `mob:blaze`. Plain skeletons are logged as before.
+
+**The player's bow in fun mode** is enchanted (glint): **Power III, Flame,
+Punch, Infinity, Unbreaking III**. Tougher enemies take fewer arrows,
+burn, and get knocked back, and the arrows never run out. It is given at
+fun start and on a switch to fun. **Rehab keeps a plain bow**, so its
+metrics stay comparable.
 
 **Overload → breather → wave:**
 - **Trigger:** `fatigue_z > 1.5` for 5 good seconds, or **3 misses in a row**. At most once every 45 s after the previous breather.
@@ -213,6 +246,7 @@ to the CSV.
 | `cave_sound`, `darkness`, `clear_darkness` | fun | with escalation | sound, Darkness effect |
 | `breather_start` / `breather_end`, `wave` | fun | overload | pause, then 5 walking skeletons |
 | `flare` | fun | jaw clench | all targets glow 5 s |
+| `enemy_unlock` | fun | `min(level, time unlock)` reaches a new tier | "New enemy!" title + threat |
 | `mode` | both | HUD button | mode switch title |
 
 ---
@@ -251,6 +285,9 @@ The report is a training summary, not a diagnostic assessment.
 | target angles / distance | `mc/config.py` `ECCENTRICITIES`, `TARGET_DISTANCE` (keep ≤ 45° at FOV 70) |
 | fun difficulty curve | `director/fun.py` `LEVELS`, `FunParams` |
 | fun target lifetime | `mc/config.py` `TARGET_LIFETIME_S`, `FunParams.mob_lifetime_s` / `sheep_lifetime_s` |
+| when tougher enemies unlock | `FunParams.tier_unlock_s` (0, 90, 180, 270, 360 s), `newest_tier_share` |
+| enemy health / lifetime / roster | `mc/enemies.py` `ROSTER` |
+| fun bow enchantments | `game/effects.py` `FUN_BOW_ENCHANTMENTS` |
 
 Test any change without hardware first:
 `poetry run python game_loop.py --mode rehab --sim --no-service --duration 600 --speed 0`.

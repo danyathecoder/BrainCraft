@@ -73,6 +73,24 @@ _MODE_SUBTITLE = {
     "rehab": "Rehab: scan left and right",
     "fun": "Fun: hold your ground",
 }
+# Fun mode's bow: glinting, stronger, sets mobs alight, never runs out.
+FUN_BOW_ENCHANTMENTS = {"minecraft:power": 3, "minecraft:flame": 1, "minecraft:punch": 1,
+                        "minecraft:infinity": 1, "minecraft:unbreaking": 3}
+
+
+def bow_cmds(mode: str, player: str = P) -> list[str]:
+    """Replace the player's bow: enchanted in fun mode, plain in rehab (comparable metrics).
+
+    26.3 component syntax; the pre-1.21.5 {levels:{...}} form is rejected.
+    """
+    if mode == "fun":
+        ench = ",".join(f'"{k}":{v}' for k, v in FUN_BOW_ENCHANTMENTS.items())
+        item = f"minecraft:bow[minecraft:enchantments={{{ench}}}]"
+    else:
+        item = "minecraft:bow"
+    return [f"clear {player} minecraft:bow", f"give {player} {item} 1"]
+
+
 _MODE_SWITCH = {
     "rehab": "Rehab mode",
     "fun": "Fun mode",
@@ -115,12 +133,18 @@ MOB_ENTITY = getattr(config, "TARGET_ENTITY", "minecraft:skeleton")
 
 
 def summon_mob_cmd(target_id: str, x: float, y: float, z: float, side: str,
-                   entity: str = MOB_ENTITY) -> str:
+                   entity: str = MOB_ENTITY, enemy: str | None = None) -> str:
     """Skeleton with AI: walks toward the player and shoots. One arrow kills it.
 
     Same bow and helmet as the still targets, so it fires from the spawn
-    distance and does not burn at dawn.
+    distance and does not burn at dawn. `enemy` (mc.enemies key, fun
+    mode) summons a tougher ranged mob instead.
     """
+    if enemy and enemy != "skeleton":
+        from mc import enemies
+
+        return enemies.summon_cmd(enemies.get(enemy), x, y, z,
+                                  ["target", target_id, side, "mob"], hold=False)
     nbt = (f'{{PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b,Health:1f,'
            f'{config.TARGET_GEAR_NBT},'
            f'{config.TARGET_ATTRIBUTES_NBT},'
@@ -161,8 +185,19 @@ class Effects:
         for c in lock_movement_cmds(p):
             self.cmd(c)
         self.cmd(f"give {p} minecraft:arrow 64")
+        self.give_bow(mode)
         self.cmd(subtitle_cmd(_MODE_SUBTITLE.get(mode, mode), player=p))
         self.cmd(title_cmd("BrainCraft", "gold", player=p))
+
+    def give_bow(self, mode: str) -> None:
+        for c in bow_cmds(mode, self.player):
+            self.cmd(c)
+
+    def enemy_unlock(self, label: str, threat: str) -> None:
+        p = self.player
+        self.cmd(sound_at_player_cmd(WAVE_SOUND, 1, 1.4, player=p))
+        self.cmd(subtitle_cmd(f"{label}: {threat}", "red", player=p))
+        self.cmd(title_cmd("New enemy!", "red", player=p))
 
     def keep_player(self) -> None:
         """Re-apply the movement lock and food; after a death and respawn
@@ -186,6 +221,7 @@ class Effects:
         if mode != "fun":
             self.cmd(f"effect clear {self.player} minecraft:darkness")
             self.cmd("time set midnight")
+        self.give_bow(mode)
         self.cmd(subtitle_cmd(_MODE_SWITCH.get(mode, mode), player=self.player))
         self.cmd(title_cmd("Mode switch", "gold", player=self.player))
 
@@ -273,4 +309,6 @@ class Effects:
             self.wave(prm.get("n", 5))
         elif a == "mode":
             self.mode_switch(prm.get("mode", "rehab"))
+        elif a == "enemy_unlock":
+            self.enemy_unlock(prm.get("label", "New enemy"), prm.get("threat", ""))
         self.echo(decision)
