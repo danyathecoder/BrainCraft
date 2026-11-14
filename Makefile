@@ -10,12 +10,14 @@ GAME    ?= rcon       # rcon | sim | none
 MODE    ?= rehab      # rehab | fun
 PLAYER  ?= player
 DURATION ?= 600
+MC_NAME ?=            # Minecraft username(s) to whitelist, e.g. MC_NAME=Steve or MC_NAME="Steve Alex"
 ARGS    ?=            # extra flags for `start`, e.g. ARGS="--oscar --no-browser"
 
 START = $(RUN) start --eeg $(strip $(EEG)) --game $(strip $(GAME)) --mode $(strip $(MODE)) \
-        --player $(strip $(PLAYER)) --duration $(strip $(DURATION)) $(ARGS)
+        --player $(strip $(PLAYER)) --duration $(strip $(DURATION)) \
+        $(foreach n,$(MC_NAME),--mc-name $(n)) $(ARGS)
 
-.PHONY: help setup server doctor start dev demo-synthetic hud bridge check calibrate report test
+.PHONY: help setup server doctor start dev demo-synthetic hud bridge check calibrate whitelist report test
 
 help:            ## list targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed 's/:.*## /\t/'
@@ -37,7 +39,8 @@ dev:             ## no hardware: HUD sliders + simulated game
 	$(RUN) start --eeg mock --game sim --mode $(strip $(MODE)) $(ARGS)
 
 demo-synthetic:  ## no headset: synthetic EEG + real Minecraft
-	$(RUN) start --eeg synthetic --game rcon --mode $(strip $(MODE)) --player synthetic $(ARGS)
+	$(RUN) start --eeg synthetic --game rcon --mode $(strip $(MODE)) --player synthetic \
+	    $(foreach n,$(MC_NAME),--mc-name $(n)) $(ARGS)
 
 hud:             ## headset + service + HUD only, no game
 	$(RUN) start --eeg $(strip $(EEG)) --game none --player $(strip $(PLAYER)) $(ARGS)
@@ -50,6 +53,9 @@ check:           ## signal sanity check: close your eyes, alpha should jump
 
 calibrate:       ## new baseline for PLAYER
 	$(RUN) calibrate --player $(strip $(PLAYER)) --eeg $(strip $(EEG))
+
+whitelist:       ## allow MC_NAME to join the running Minecraft server
+	$(RUN) whitelist $(MC_NAME)
 
 report:          ## HTML report of the latest session
 	$(RUN) report

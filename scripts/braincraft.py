@@ -197,6 +197,29 @@ def server_command() -> str:
     return ""
 
 
+def whitelist(names: list[str]) -> None:
+    """Minecraft 26.3 servers start with the whitelist on: add the players.
+
+    Kept on (rather than disabled) so nobody else on the venue network can
+    join the demo server. Needs internet once per name (Mojang lookup).
+    """
+    if not names:
+        return
+    from mc.rcon import Rcon
+
+    with Rcon(timeout=15) as r:
+        failed = []
+        for name in names:
+            reply = r.cmd(f"whitelist add {name}").strip()
+            say(f"whitelist {name}: {reply or 'ok'}")
+            if "does not exist" in reply:  # typo, or Mojang lookup failed (no internet)
+                failed.append(name)
+        if failed:
+            say(f"could not whitelist {', '.join(failed)} (check the spelling; the lookup "
+                "needs internet). Turning the whitelist OFF so you can join.")
+            say(r.cmd("whitelist off").strip())
+
+
 def baseline_path(player: str) -> Path:
     safe = re.sub(r"[^A-Za-z0-9_.-]", "_", player)
     return SESSIONS / f"baseline-{safe}.json"
@@ -315,6 +338,13 @@ def cmd_calibrate(args) -> int:
     return 0
 
 
+def cmd_whitelist(args) -> int:
+    if not rcon_ok():
+        die("Minecraft server not running (or RCON not reachable)")
+    whitelist(args.names)
+    return 0
+
+
 def cmd_report(args) -> int:
     path = Path(args.session) if args.session else latest_session()
     if not path:
@@ -398,6 +428,11 @@ def cmd_start(args) -> int:
                 children.append(server)
                 if not wait_until("Minecraft server RCON", rcon_ok, 180, server, every=2):
                     die("Minecraft server did not open RCON")
+            if args.mc_name:
+                whitelist(args.mc_name)
+            elif args.wait_player:
+                say("tip: if Minecraft says you're not whitelisted, add MC_NAME=<username> "
+                    "(make) or --mc-name <username>")
             subprocess.call([PY, "-m", "mc.world"], cwd=ROOT)
             if args.wait_player:
                 say("join the server now: Minecraft 26.3 -> Multiplayer -> Direct Connection -> localhost")
@@ -502,6 +537,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     k.add_argument("--eeg", choices=("gpype", "unicorn", "synthetic"), default="gpype")
     k.add_argument("--name", help="LSL stream name")
 
+    w = sub.add_parser("whitelist", help="allow Minecraft usernames to join the running server")
+    w.add_argument("names", nargs="+")
+
     r = sub.add_parser("report", help="HTML report of the latest (or given) session")
     r.add_argument("session", nargs="?")
 
@@ -514,6 +552,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     st.add_argument("--mode", choices=("rehab", "fun"), default="rehab")
     st.add_argument("--player", default="player", help="whose baseline to use (sessions/baseline-<player>.json)")
     st.add_argument("--recalibrate", action="store_true", help="record a new baseline first")
+    st.add_argument("--mc-name", action="append", default=[], metavar="USERNAME",
+                    help="Minecraft username to whitelist (repeatable); 26.3 servers whitelist by default")
     st.add_argument("--name", help="session name (default <player>-<mode>-<time>)")
     st.add_argument("--duration", type=float, default=600.0, help="game session length, s")
     st.add_argument("--port", type=int, default=8000)
@@ -537,6 +577,7 @@ def main(argv=None) -> int:
     return {
         "setup": cmd_setup, "doctor": cmd_doctor, "check": cmd_check,
         "calibrate": cmd_calibrate, "report": cmd_report, "start": cmd_start,
+        "whitelist": cmd_whitelist,
     }[args.command](args)
 
 
