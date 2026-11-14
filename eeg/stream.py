@@ -1,6 +1,7 @@
 """EEG input + ring buffer for the Unicorn Hybrid Black (P1).
 
-Unicorn Suite -> "Unicorn LSL" app -> this module. The stream carries
+Headset -> eeg.gpype_bridge (or Unicorn Suite's "Unicorn LSL" app) ->
+LSL -> this module. The stream carries
 more than EEG (accelerometer, gyroscope, ...); which columns are EEG and
 gyro is configurable, see eeg/layout.py (BRAINCRAFT_EEG_COLS,
 BRAINCRAFT_GYRO_COLS).
@@ -241,8 +242,9 @@ class EEGStream:
             seen = ", ".join(others) if others else "none"
             raise StreamNotFound(
                 f"no LSL stream with {prop}={value!r} found within {self.timeout:g} s. "
-                f"Streams on the network: {seen}. Is the Unicorn LSL app streaming "
-                f"(or `python -m eeg.synthetic --lsl` running)? Select the stream with "
+                f"Streams on the network: {seen}. Is `python -m eeg.gpype_bridge` running "
+                f"(or the Unicorn LSL app streaming, or `python -m eeg.synthetic --lsl`)? "
+                f"Select the stream with "
                 f"name=... / BRAINCRAFT_LSL_NAME."
             )
         if len(found) > 1:

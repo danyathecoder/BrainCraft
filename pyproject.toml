@@ -22,6 +22,14 @@ dev = [
     "pytest",
     "httpx",
 ]
+# Optional: Unicorn Hybrid Black -> LSL bridge (eeg/gpype_bridge.py).
+# poetry install --with gpype
+gpype = [
+    "gpype[devices,gui,lsl]==4.2.0",
+]
+
+[tool.poetry.group.gpype]
+optional = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

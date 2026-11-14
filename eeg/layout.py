@@ -1,7 +1,8 @@
 """Channel layout of the Unicorn Hybrid Black LSL stream.
 
-The Unicorn LSL app sends more than EEG. Assumed (unverified) layout,
-0-based column indices:
+The stream carries more than EEG. Layout, 0-based column indices (the
+g.Pype bridge publishes exactly this, checked against g.Pype 4.2.0's
+HybridBlack; for the Unicorn LSL app it is assumed, unverified):
 
     0-7    EEG  Fz, C3, Cz, C4, Pz, PO7, Oz, PO8   (microvolts)
     8-10   accelerometer x, y, z                   (g)
@@ -9,6 +10,7 @@ The Unicorn LSL app sends more than EEG. Assumed (unverified) layout,
     14     battery level
     15     counter
     16     validation indicator
+    17     g.Pype arrival stamp (bridge only; ignored)
 
 If the real stream differs, override the columns without touching code:
 
