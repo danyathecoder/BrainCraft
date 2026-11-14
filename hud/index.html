@@ -4,71 +4,431 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BrainCraft HUD</title>
+<!-- Fully offline: no CDN scripts or fonts. Served by state_service.py at "/". -->
 <style>
-  body { font-family: system-ui, sans-serif; margin: 24px; background: #111; color: #eee; }
-  h1 { font-size: 20px; margin: 0 0 16px; }
-  .row { display: grid; grid-template-columns: 140px 1fr 70px; gap: 12px; align-items: center; margin: 10px 0; }
-  .bar { height: 14px; background: #333; border-radius: 7px; position: relative; overflow: hidden; }
-  .fill { position: absolute; top: 0; bottom: 0; background: #4a9eff; }
-  .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: #888; }
-  .meta { color: #aaa; font-size: 14px; margin: 16px 0; }
-  .bad { color: #ff6b6b; }
-  #mock { border-top: 1px solid #333; margin-top: 24px; padding-top: 12px; }
-  input[type=range] { width: 100%; }
+  :root {
+    --page: #0d0d0d; --card: #1a1a19; --line: #2c2c2a; --axis: #383835;
+    --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --left: #3987e5; --right: #d95926; --accent: #3987e5;
+    --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 16px; }
+  .num { font-variant-numeric: tabular-nums; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 16px; }
+  header h1 { font-size: 24px; margin: 0; letter-spacing: .02em; }
+  header h1 small { font-size: 14px; color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .spacer { flex: 1; }
+  .modes { display: flex; border: 1px solid var(--axis); border-radius: 8px; overflow: hidden; }
+  .modes button { background: transparent; color: var(--ink2); border: 0; padding: 10px 20px;
+    font-size: 16px; font-weight: 600; cursor: pointer; text-transform: uppercase; letter-spacing: .05em; }
+  .modes button + button { border-left: 1px solid var(--axis); }
+  .modes button.active { background: var(--accent); color: #fff; }
+  .modes button:disabled { opacity: .5; cursor: progress; }
+  .modenote { color: var(--warn); font-size: 13px; }
+  .conn { font-size: 14px; color: var(--muted); }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: 0; }
+  .dot.bad { background: var(--crit); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  /* brain state */
+  .zrow { display: grid; grid-template-columns: 150px minmax(80px, 1fr) 64px minmax(120px, 1.3fr); gap: 12px; align-items: center; margin: 12px 0; }
+  .zname { font-size: 16px; color: var(--ink2); }
+  .zval { font-size: 22px; font-weight: 600; text-align: right; }
+  .bar { height: 16px; background: #262624; border-radius: 8px; position: relative; overflow: hidden; }
+  .fill { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; transition: left .3s, width .3s; }
+  .fill.warn { background: var(--warn); }
+  .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--muted); }
+  canvas.spark { width: 100%; height: 44px; display: block; }
+  .signal { font-size: 14px; color: var(--ink2); margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .signal b { color: var(--ink); font-weight: 600; }
+  .bad { color: var(--crit) !important; }
+  .warnc { color: var(--warn) !important; }
+  .stale { display: none; margin-top: 10px; padding: 10px 14px; border-radius: 8px; background: rgba(208,59,59,.15);
+    border: 1px solid var(--crit); color: #ff8b8b; font-weight: 700; letter-spacing: .04em; }
+  .stale.on { display: block; }
+  .zcard.isstale .zrow { opacity: .4; }
+  .axisnote { font-size: 12px; color: var(--muted); text-align: right; }
+
+  /* status */
+  .restbadge { display: none; text-align: center; font-size: 34px; font-weight: 800; letter-spacing: .12em;
+    padding: 14px; border-radius: 10px; margin-bottom: 14px; background: var(--warn); color: #0b0b0b;
+    animation: pulse 2s ease-in-out infinite; }
+  .restbadge.on { display: block; }
+  @keyframes pulse { 50% { opacity: .65; } }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .tile { background: #121211; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .tile .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .tile .value { font-size: 26px; font-weight: 650; margin-top: 2px; }
+  .tile .value small { font-size: 14px; color: var(--ink2); font-weight: 400; }
+  .sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .side { background: #121211; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .side .label { font-size: 13px; font-weight: 700; letter-spacing: .06em; }
+  .side.L .label { color: var(--left); }
+  .side.R .label { color: var(--right); }
+  .side .value { font-size: 30px; font-weight: 650; }
+  .side .sub { font-size: 14px; color: var(--ink2); }
+  .ratebar { height: 6px; background: #262624; border-radius: 3px; margin-top: 8px; overflow: hidden; }
+  .ratebar div { height: 100%; border-radius: 3px; transition: width .3s; }
+  .side.L .ratebar div { background: var(--left); }
+  .side.R .ratebar div { background: var(--right); }
+  .plr { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 6px; gap: 2px; }
+  .plr .l { background: var(--left); } .plr .r { background: var(--right); }
+  .idle { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .statuscard.isidle .tiles, .statuscard.isidle .sides { opacity: .45; }
+
+  /* decisions */
+  #decisions { list-style: none; margin: 0; padding: 0; max-height: 520px; overflow-y: auto; }
+  #decisions li { display: grid; grid-template-columns: 74px 1fr; gap: 2px 10px; padding: 8px 10px;
+    border-bottom: 1px solid var(--line); border-radius: 6px; }
+  #decisions li.new { animation: flash 4s ease-out; }
+  @keyframes flash { 0% { background: rgba(57,135,229,.45); } 100% { background: transparent; } }
+  #decisions .time { color: var(--muted); font-size: 14px; grid-row: span 2; }
+  #decisions .value { font-weight: 650; font-size: 16px; }
+  #decisions .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; padding: 1px 6px; border-radius: 4px;
+    border: 1px solid var(--axis); color: var(--ink2); margin-left: 6px; font-weight: 500; vertical-align: 2px; }
+  #decisions .reason { color: var(--ink2); font-size: 14px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+
+  /* mock controls */
+  #mock { margin-top: 16px; }
+  #mock .zrow { grid-template-columns: 150px 1fr 50px; margin: 6px 0; }
+  #mock label { margin-right: 18px; color: var(--ink2); font-size: 14px; }
+  #mock select { background: #121211; color: var(--ink); border: 1px solid var(--axis); border-radius: 4px; padding: 2px 6px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
 </style>
 </head>
 <body>
-<h1>BrainCraft HUD</h1>
-<!-- TODO(P4): director decision log, current mode, Chart.js history -->
-<div id="gauges"></div>
-<div class="meta" id="meta"></div>
+<header>
+  <h1>BrainCraft <small>neuroadaptive scanning training</small></h1>
+  <div class="modes" id="modes">
+    <button data-mode="rehab">Rehab</button>
+    <button data-mode="fun">Fun</button>
+  </div>
+  <span class="modenote" id="modenote"></span>
+  <span class="spacer"></span>
+  <span class="conn" id="conn"><span class="dot"></span>connecting&hellip;</span>
+</header>
 
-<div id="mock" hidden>
-  <h1>Mock controls</h1>
+<div class="grid">
+  <div class="col">
+    <section class="card zcard" id="zcard">
+      <h2>Brain state &middot; z-score vs. own baseline</h2>
+      <div id="gauges"></div>
+      <div class="axisnote">bars: &minus;3 &hellip; +3 &middot; sparklines: last 60 s</div>
+      <div class="signal" id="signal"></div>
+      <div class="stale" id="stale">STALE &mdash; no fresh brain-state data</div>
+    </section>
+
+    <section class="card statuscard isidle" id="statuscard">
+      <h2>Game status</h2>
+      <div class="restbadge" id="rest">REST PHASE</div>
+      <div class="tiles">
+        <div class="tile"><div class="label">Mode</div><div class="value" id="s_mode">&mdash;</div></div>
+        <div class="tile"><div class="label">Spawn interval</div><div class="value num" id="s_interval">&mdash;</div></div>
+        <div class="tile"><div class="label">Left eccentricity</div><div class="value num" id="s_ecc">&mdash;</div></div>
+        <div class="tile"><div class="label">Targets on left</div><div class="value num" id="s_pleft">&mdash;</div>
+          <div class="plr"><div class="l" id="plr_l" style="flex:1"></div><div class="r" id="plr_r" style="flex:1"></div></div></div>
+        <div class="tile"><div class="label">Score</div><div class="value num" id="s_score">&mdash;</div></div>
+      </div>
+      <div class="sides">
+        <div class="side L"><div class="label">LEFT</div><div class="value num" id="L_rate">&mdash;</div>
+          <div class="sub num" id="L_counts"></div><div class="ratebar"><div id="L_bar" style="width:0"></div></div></div>
+        <div class="side R"><div class="label">RIGHT</div><div class="value num" id="R_rate">&mdash;</div>
+          <div class="sub num" id="R_counts"></div><div class="ratebar"><div id="R_bar" style="width:0"></div></div></div>
+      </div>
+      <div class="idle" id="idle">waiting for the game loop to report status&hellip;</div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Director decisions &middot; why the game changed</h2>
+    <ul id="decisions"><li class="empty">No decisions yet.</li></ul>
+  </section>
+</div>
+
+<section class="card" id="mock" hidden>
+  <h2>Mock controls (source = mock)</h2>
   <div id="sliders"></div>
   <label><input type="checkbox" id="jaw"> jaw clench</label>
   <label><input type="checkbox" id="badq"> bad quality</label>
-</div>
+  <label>artifact
+    <select id="artifact">
+      <option>none</option><option>blink</option><option>jaw</option><option>motion</option>
+    </select>
+  </label>
+</section>
 
 <script>
+"use strict";
 const KEYS = ["engagement_z", "fatigue_z", "alpha_low_z"];
-const RANGE = 3; // z-scores shown from -3 to +3
+const LABELS = { engagement_z: "Engagement", fatigue_z: "Fatigue", alpha_low_z: "Lower alpha" };
+const RANGE = 3;            // z-scores shown from -3 to +3
+const HISTORY_S = 60;       // sparkline window
+const STALE_S = 3;          // brain state older than this = STALE
+const POLL_MS = 1000;
+const FETCH_TIMEOUT_MS = 1500;
 
-function gauge(key, value) {
-  const pct = Math.max(-RANGE, Math.min(RANGE, value)) / RANGE * 50;
-  const left = pct >= 0 ? 50 : 50 + pct;
-  return `<div class="row"><span>${key}</span>
-    <div class="bar"><div class="fill" style="left:${left}%;width:${Math.abs(pct)}%"></div><div class="mid"></div></div>
-    <span>${value.toFixed(2)}</span></div>`;
-}
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const num = v => (typeof v === "number" && isFinite(v)) ? v : null;
 
-async function poll() {
+async function getJSON(url, opts = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const s = await (await fetch("/state")).json();
-    document.getElementById("gauges").innerHTML = KEYS.map(k => gauge(k, s[k])).join("");
-    const q = s.quality === "ok" ? "ok" : `<span class="bad">${s.quality}</span>`;
-    document.getElementById("meta").innerHTML =
-      `source: ${s.source} · quality: ${q} · artifact: ${s.artifact} · jaw: ${s.jaw_clench}`;
-    document.getElementById("mock").hidden = s.source !== "mock";
-  } catch (e) {
-    document.getElementById("meta").textContent = "state service unreachable";
+    const r = await fetch(url, { cache: "no-store", ...opts, signal: ctrl.signal });
+    if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-function sendMock(body) {
-  fetch("/mock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+// ---- brain state: gauges + sparklines ---------------------------------
+const history = Object.fromEntries(KEYS.map(k => [k, []]));   // [{t: local ms, v}]
+
+$("gauges").innerHTML = KEYS.map(k => `
+  <div class="zrow">
+    <span class="zname">${LABELS[k]} <span style="color:var(--muted);font-size:12px">${k}</span></span>
+    <div class="bar"><div class="fill" id="fill_${k}"></div><div class="mid"></div></div>
+    <span class="zval num" id="val_${k}">&ndash;</span>
+    <canvas class="spark" id="spark_${k}"></canvas>
+  </div>`).join("");
+
+function setGauge(k, v) {
+  const fill = $("fill_" + k);
+  if (v === null) { fill.style.width = "0"; $("val_" + k).textContent = "–"; return; }
+  const pct = Math.max(-RANGE, Math.min(RANGE, v)) / RANGE * 50;
+  fill.style.left = (pct >= 0 ? 50 : 50 + pct) + "%";
+  fill.style.width = Math.abs(pct) + "%";
+  fill.classList.toggle("warn", k === "fatigue_z" && v > 1.5);
+  $("val_" + k).textContent = (v >= 0 ? "+" : "") + v.toFixed(2);
 }
 
-document.getElementById("sliders").innerHTML = KEYS.map(k =>
-  `<div class="row"><span>${k}</span><input type="range" min="-3" max="3" step="0.1" value="0" data-key="${k}"><span></span></div>`
+function drawSpark(k) {
+  const cv = $("spark_" + k);
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const now = Date.now();
+  const x = t => w - (now - t) / (HISTORY_S * 1000) * w;
+  const y = v => h / 2 - Math.max(-RANGE, Math.min(RANGE, v)) / RANGE * (h / 2 - 3);
+  // zero line and +-1 guides
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "#383835";
+  ctx.beginPath(); ctx.moveTo(0, y(0)); ctx.lineTo(w, y(0)); ctx.stroke();
+  ctx.strokeStyle = "#262624";
+  for (const g of [-1, 1]) { ctx.beginPath(); ctx.moveTo(0, y(g)); ctx.lineTo(w, y(g)); ctx.stroke(); }
+  const pts = history[k];
+  if (!pts.length) return;
+  ctx.strokeStyle = k === "fatigue_z" && pts[pts.length - 1].v > 1.5 ? "#fab219" : "#3987e5";
+  ctx.lineWidth = 2; ctx.lineJoin = "round";
+  ctx.beginPath();
+  let prev = null;
+  for (const p of pts) {
+    // break the line across gaps (missed polls > 3 s)
+    if (prev && p.t - prev.t > 3000) { ctx.stroke(); ctx.beginPath(); ctx.moveTo(x(p.t), y(p.v)); }
+    else if (!prev) ctx.moveTo(x(p.t), y(p.v));
+    else ctx.lineTo(x(p.t), y(p.v));
+    prev = p;
+  }
+  ctx.stroke();
+  const last = pts[pts.length - 1];
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.beginPath(); ctx.arc(x(last.t), y(last.v), 3.5, 0, Math.PI * 2); ctx.fill();
+}
+
+// Staleness is judged with the browser clock: when did state.t last change?
+// (Works even if the HUD runs on another machine whose clock differs.)
+let lastStateT = null, lastStateChange = 0, lastStateOk = 0, stateSource = null;
+
+async function pollState() {
+  const now = Date.now();
+  try {
+    const s = await getJSON("/state");
+    lastStateOk = now;
+    if (s.t !== lastStateT) { lastStateT = s.t; lastStateChange = now; }
+    stateSource = s.source;
+    for (const k of KEYS) {
+      const v = num(s[k]);
+      setGauge(k, v);
+      if (v !== null) history[k].push({ t: now, v });
+    }
+    const ageServer = num(s.t) !== null ? Math.max(0, now / 1000 - s.t) : null;
+    const q = s.quality === "ok" ? `<b>ok</b>` : `<b class="bad">${esc(s.quality)}</b>`;
+    const a = s.artifact === "none" ? `<b>none</b>` : `<b class="warnc">${esc(s.artifact)}</b>`;
+    $("signal").innerHTML =
+      `<span>source: <b>${esc(s.source)}</b></span><span>signal quality: ${q}</span>` +
+      `<span>artifact: ${a}</span><span>jaw clench: <b class="${s.jaw_clench ? "warnc" : ""}">${s.jaw_clench ? "YES" : "no"}</b></span>` +
+      (ageServer !== null && ageServer < 3600 ? `<span>age: <b class="num">${ageServer.toFixed(1)} s</b></span>` : "");
+    $("mock").hidden = s.source !== "mock";
+  } catch (e) {
+    $("signal").innerHTML = `<span class="bad">state service unreachable (${esc(e.message || e)})</span>`;
+  }
+  const stale = now - lastStateOk > STALE_S * 1000 || now - lastStateChange > STALE_S * 1000;
+  $("stale").classList.toggle("on", stale);
+  $("zcard").classList.toggle("isstale", stale);
+  const conn = $("conn");
+  conn.innerHTML = stale
+    ? `<span class="dot bad"></span>${lastStateOk && now - lastStateOk <= STALE_S * 1000 ? "stale data" : "offline"}`
+    : `<span class="dot"></span>live${stateSource ? " · " + esc(stateSource) : ""}`;
+  for (const k of KEYS) {
+    const h = history[k];
+    while (h.length && now - h[0].t > HISTORY_S * 1000) h.shift();
+  }
+}
+
+
+// ---- game status ---------------------------------------------------------
+let lastStatusT = null, lastStatusChange = 0;
+let currentMode = null, gameMode = null;
+
+function setSide(side, hits, misses) {
+  const n = hits + misses;
+  const rate = n ? hits / n : null;
+  $(side + "_rate").innerHTML = rate === null ? "&mdash;" : `${Math.round(rate * 100)}%<small style="font-size:14px;color:var(--ink2)"> hit rate</small>`;
+  $(side + "_counts").textContent = `${hits} hits · ${misses} misses`;
+  $(side + "_bar").style.width = rate === null ? "0" : (rate * 100) + "%";
+}
+
+async function pollStatus() {
+  const now = Date.now();
+  try {
+    const s = await getJSON("/status");
+    if (s.t !== lastStatusT) { if (lastStatusT !== null) lastStatusChange = now; lastStatusT = s.t; }
+    gameMode = s.mode;
+    $("rest").classList.toggle("on", !!s.resting);
+    $("s_mode").textContent = (s.mode || "—").toUpperCase();
+    const iv = num(s.spawn_interval_s);
+    $("s_interval").innerHTML = iv === null ? "&mdash;" : `${iv.toFixed(1)}<small> s</small>`;
+    const ecc = num(s.left_ecc_deg);
+    $("s_ecc").innerHTML = ecc === null ? "&mdash;" : `${Math.round(ecc)}<small>&deg;</small>`;
+    const pl = num(s.p_left);
+    $("s_pleft").innerHTML = pl === null ? "&mdash;" : `${Math.round(pl * 100)}<small>%</small>`;
+    if (pl !== null) { $("plr_l").style.flex = Math.max(pl, 0.001); $("plr_r").style.flex = Math.max(1 - pl, 0.001); }
+    $("s_score").textContent = s.score ?? "—";
+    setSide("L", s.hits_L | 0, s.misses_L | 0);
+    setSide("R", s.hits_R | 0, s.misses_R | 0);
+    // active = t advanced recently, or (first poll) t is fresh by the server clock
+    const fresh = num(s.t) !== null && Math.abs(now / 1000 - s.t) < 5;
+    const idle = !(lastStatusChange && now - lastStatusChange <= 5000) && !fresh;
+    $("statuscard").classList.toggle("isidle", idle);
+    $("idle").textContent = idle ? "game loop is not reporting status (showing last known values)" : "";
+  } catch (e) {
+    $("statuscard").classList.add("isidle");
+    $("idle").textContent = "status unavailable";
+  }
+  updateModeNote();
+}
+
+// ---- mode toggle --------------------------------------------------------
+function renderMode() {
+  document.querySelectorAll("#modes button").forEach(b =>
+    b.classList.toggle("active", b.dataset.mode === currentMode));
+  updateModeNote();
+}
+
+function updateModeNote() {
+  const lagging = currentMode && gameMode && !$("statuscard").classList.contains("isidle") && currentMode !== gameMode;
+  $("modenote").textContent = lagging ? `switching… game still in ${gameMode}` : "";
+}
+
+async function pollMode() {
+  try { currentMode = (await getJSON("/mode")).mode; renderMode(); } catch (e) { /* keep last */ }
+}
+
+document.querySelectorAll("#modes button").forEach(b => b.addEventListener("click", async () => {
+  const buttons = document.querySelectorAll("#modes button");
+  buttons.forEach(x => x.disabled = true);
+  try {
+    const r = await getJSON("/mode", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: b.dataset.mode }),
+    });
+    currentMode = r.mode || b.dataset.mode;
+    renderMode();
+  } catch (e) {
+    $("modenote").textContent = "could not change mode";
+  } finally {
+    buttons.forEach(x => x.disabled = false);
+  }
+}));
+
+// ---- decision log -------------------------------------------------------
+const seen = new Set();
+let firstDecisions = true;
+
+function fmtTime(t) {
+  const d = new Date(t * 1000);
+  return isNaN(d) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+}
+
+async function pollDecisions() {
+  let items;
+  try { items = await getJSON("/decisions?limit=15"); } catch (e) { return; }
+  if (!Array.isArray(items)) return;
+  const list = $("decisions");
+  if (!items.length) { list.innerHTML = `<li class="empty">No decisions yet.</li>`; return; }
+  list.innerHTML = items.map(d => {
+    const key = `${d.t}|${d.value}|${d.reason}`;
+    const isNew = !firstDecisions && !seen.has(key);
+    seen.add(key);
+    return `<li class="${isNew ? "new" : ""}">
+      <span class="time num">${esc(fmtTime(d.t))}</span>
+      <span class="value">${esc(d.value)}${d.mode ? `<span class="tag">${esc(d.mode)}</span>` : ""}</span>
+      <span class="reason">${esc(d.reason)}</span></li>`;
+  }).join("");
+  firstDecisions = false;
+}
+
+// ---- mock controls ------------------------------------------------------
+function sendMock(body) {
+  fetch("/mock", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .catch(() => {});
+}
+
+$("sliders").innerHTML = KEYS.map(k =>
+  `<div class="zrow"><span class="zname">${k}</span><input type="range" min="-3" max="3" step="0.1" value="0" data-key="${k}"><span class="num">0.0</span></div>`
 ).join("");
 document.querySelectorAll("#sliders input").forEach(el =>
-  el.addEventListener("input", () => sendMock({ [el.dataset.key]: parseFloat(el.value) })));
-document.getElementById("jaw").addEventListener("change", e => sendMock({ jaw_clench: e.target.checked }));
-document.getElementById("badq").addEventListener("change", e => sendMock({ quality: e.target.checked ? "bad" : "ok" }));
+  el.addEventListener("input", () => {
+    el.nextElementSibling.textContent = parseFloat(el.value).toFixed(1);
+    sendMock({ [el.dataset.key]: parseFloat(el.value) });
+  }));
+$("jaw").addEventListener("change", e => sendMock({ jaw_clench: e.target.checked }));
+$("badq").addEventListener("change", e => sendMock({ quality: e.target.checked ? "bad" : "ok" }));
+$("artifact").addEventListener("change", e => sendMock({ artifact: e.target.value }));
 
-poll();
-setInterval(poll, 1000);
+// ---- main loop ----------------------------------------------------------
+let busy = false;
+async function tick() {
+  if (busy) return;           // never pile up requests if the service is slow
+  busy = true;
+  try {
+    await Promise.allSettled([pollState(), pollStatus(), pollDecisions(), pollMode()]);
+  } finally {
+    busy = false;
+    KEYS.forEach(drawSpark);
+  }
+}
+window.addEventListener("resize", () => KEYS.forEach(drawSpark));
+tick();
+setInterval(tick, POLL_MS);
 </script>
 </body>
 </html>
