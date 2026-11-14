@@ -1,4 +1,4 @@
-"""One-off world setup: chunks, rules, night, tower, player. Run once per session.
+"""One-off world setup: chunks, rules, night, ground, player. Run once per session.
 
     python -m mc.world [--player NAME]
 
@@ -89,9 +89,35 @@ def forceload_arena(rcon: Rcon) -> str:
 
 
 def forceload_active(rcon: Rcon) -> bool:
-    """True if the tower chunk is force loaded."""
-    reply = rcon.cmd(f"forceload query {config.TOWER_X} {config.TOWER_Z}").lower()
+    """True if the chunk the player stands in is force loaded."""
+    reply = rcon.cmd(f"forceload query {config.STAND_X} {config.STAND_Z}").lower()
     return "is marked" in reply or "are marked" in reply
+
+
+# The stone tower this used to build: a 5×5 column, 6 blocks tall, a rim
+# on top, and 3 blocks of headroom. Setup replaces that volume with air
+# so an existing world loses the tower on the next run.
+_OLD_TOWER_ABOVE = 9
+
+
+def clear_tower_cmd() -> str:
+    """Air where the old tower stood. Does not dig the grass under the player's feet."""
+    x, z, y = config.STAND_X, config.STAND_Z, config.GROUND_Y
+    return f"fill {x - 2} {y} {z - 2} {x + 2} {y + _OLD_TOWER_ABOVE} {z + 2} minecraft:air"
+
+
+def player_anchor_cmd(player: str) -> str:
+    """Feet on the grass, facing north, looking level."""
+    return f"tp {player} {config.STAND_X + 0.5} {config.GROUND_Y} {config.STAND_Z + 0.5} 180 0"
+
+
+def lock_movement_cmds(player: str) -> list[str]:
+    """Looking around stays. Walking, jumping, and arrow knockback do not."""
+    return [
+        f"attribute {player} minecraft:movement_speed base set 0",
+        f"attribute {player} minecraft:jump_strength base set 0",
+        f"attribute {player} minecraft:knockback_resistance base set 1",
+    ]
 
 
 def setup(rcon: Rcon, player: str = config.PLAYER) -> None:
@@ -99,52 +125,36 @@ def setup(rcon: Rcon, player: str = config.PLAYER) -> None:
     forceload_arena(rcon)
     for rule, value in GAMERULES.items():
         set_gamerule(rcon, rule, value)
-    for c in ("time set midnight", "weather clear", "difficulty easy"):  # peaceful despawns zombies
+    for c in ("time set midnight", "weather clear", "difficulty normal"):  # peaceful despawns zombies
         _say(f"  {c}: {rcon.cmd(c).strip()}")
     rcon.cmd("kill @e[tag=target]")  # leftovers from a previous session
-    build_tower(rcon)
-    top = config.GROUND_Y + config.TOWER_HEIGHT
-    rcon.cmd(f"setworldspawn {config.TOWER_X} {top} {config.TOWER_Z}")
+    reply = rcon.cmd(clear_tower_cmd())
+    _say(f"  ground: {reply.strip()}")
+    rcon.cmd(f"setworldspawn {config.STAND_X} {config.GROUND_Y} {config.STAND_Z}")
     place_player(rcon, player)
 
 
-def build_tower(rcon: Rcon) -> None:
-    """5x5 stone tower; on top a 1-block-high rim around the 1x1 standing spot.
-
-    The rim keeps the player in place (so eccentricities are exact) and
-    is low enough that arrows aimed down at the targets clear it (a fence
-    is 1.5 blocks tall and would catch them).
-    """
-    x, z, y0 = config.TOWER_X, config.TOWER_Z, config.GROUND_Y
-    top = y0 + config.TOWER_HEIGHT
-    # Clear the space above the tower (old railings, previous designs).
-    rcon.cmd(f"fill {x - 2} {top} {z - 2} {x + 2} {top + 3} {z + 2} minecraft:air")
-    reply = rcon.cmd(f"fill {x - 2} {y0} {z - 2} {x + 2} {top - 1} {z + 2} minecraft:stone_bricks")
-    rcon.cmd(f"fill {x - 1} {top} {z - 1} {x + 1} {top} {z + 1} minecraft:stone_bricks")
-    rcon.cmd(f"setblock {x} {top} {z} minecraft:air")
-    _say(f"  tower: {reply.strip()}")
-    # TODO(P3): walls to defend, lighting, nicer map
-
-
 def place_player(rcon: Rcon, player: str = config.PLAYER) -> bool:
-    """Put the player on the tower facing north, ready to shoot.
+    """Put the player on the grass facing north, ready to shoot.
 
-    Returns False (and does nothing) if no matching player is online.
+    Looking around stays free. Walking, jumping, and knockback are off,
+    so the spawn angles stay exact. Returns False (and does nothing) if
+    no matching player is online.
     """
     if not rcon.player_online(player):
         _say(f"  player {player}: nobody online, skipping tp/gamemode/bow. Join, then run again.")
         return False
-    x, z = config.TOWER_X, config.TOWER_Z
-    top = config.GROUND_Y + config.TOWER_HEIGHT
+    x, z, y = config.STAND_X, config.STAND_Z, config.GROUND_Y
     p = player
     steps = [
         f"gamemode adventure {p}",
-        f"tp {p} {x + 0.5} {top} {z + 0.5} 180 0",
-        f"spawnpoint {p} {x} {top} {z}",
+        player_anchor_cmd(p),
+        f"spawnpoint {p} {x} {y} {z}",
         f"clear {p}",
         f"give {p} minecraft:bow",
         f"give {p} minecraft:arrow 192",
         f"effect give {p} minecraft:saturation infinite 0 true",
+        *lock_movement_cmds(p),
     ]
     for c in steps:
         reply = rcon.cmd(c)

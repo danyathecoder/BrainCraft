@@ -14,9 +14,10 @@ Every spawn / found / hit / miss / false_tag goes to the EventLogger
 with t = the loop's clock (simulated time in --sim).
 
 Yaw convention (Minecraft): 0 = south (+Z), 90 = west (-X),
-180 = north (-Z), -90/270 = east (+X). The player faces north, so a
-LEFT target at eccentricity theta has bearing 180 - theta and a RIGHT
-target 180 + theta.
+180 = north (-Z), -90/270 = east (+X). A target is placed relative to
+the yaw read at spawn: LEFT at eccentricity theta has bearing
+yaw - theta and RIGHT has yaw + theta. With no player online the
+fallback facing is north (180), which is also where a session starts.
 """
 
 from __future__ import annotations
@@ -43,11 +44,11 @@ def yaw_diff(a: float, b: float) -> float:
     return normalize_yaw(a - b)
 
 
-def bearing_yaw(side: str, ecc_deg: float) -> float:
-    """Yaw the player must face to look at a target (player faces north = 180)."""
+def bearing_yaw(side: str, ecc_deg: float, facing_yaw: float = 180.0) -> float:
+    """Yaw the player must face to look at a target ecc_deg off facing_yaw."""
     if side not in ("L", "R"):
         raise ValueError(f"side must be 'L' or 'R', got {side!r}")
-    return normalize_yaw(180.0 - ecc_deg if side == "L" else 180.0 + ecc_deg)
+    return normalize_yaw(facing_yaw - ecc_deg if side == "L" else facing_yaw + ecc_deg)
 
 
 def yaw_towards(dx: float, dz: float) -> float:
@@ -122,10 +123,14 @@ class TrialRunner:
         else:
             self._n_targets += 1
             tid = f"t{self._n_targets}"
-        x, y, z = target_position(side, ecc_deg)
+        facing = self.rcon.yaw()
+        if facing is None:
+            facing = 180.0
+        x, y, z = target_position(side, ecc_deg, facing_yaw=facing)
         t = Target(tid, side, float(ecc_deg), now, cued=cued, kind=kind,
                    lifetime_s=self.lifetime_s if lifetime_s is None else lifetime_s,
-                   pos=(x, y, z), bearing=bearing_yaw(side, ecc_deg), owner=owner, last_seen=now)
+                   pos=(x, y, z), bearing=bearing_yaw(side, ecc_deg, facing), owner=owner,
+                   last_seen=now)
         if kind == "target":
             reply = self.rcon.summon_target(tid, x, y, z, side, glowing=cued)
             effects.check_reply("summon target", reply or "")

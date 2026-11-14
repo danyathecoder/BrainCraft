@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import math
 
 import pytest
 
@@ -10,6 +11,7 @@ import game_loop
 from contracts import EVENT_FIELDS, STATE_FIELDS, BrainState
 from game import effects
 from game.geometry import target_position
+from director.rehab import RehabParams
 from game.trials import TrialRunner, bearing_yaw, normalize_yaw, yaw_diff, yaw_towards
 from mc import config
 from mc.sim import NeglectProfile, SimRcon
@@ -81,10 +83,22 @@ def test_bearing_convention():
 
 @pytest.mark.parametrize("side", ["L", "R"])
 @pytest.mark.parametrize("ecc", config.ECCENTRICITIES)
-def test_bearing_matches_geometry(side, ecc):
-    x, _, z = target_position(side, ecc)
-    ox, oz = config.TOWER_X + 0.5, config.TOWER_Z + 0.5
-    assert abs(yaw_diff(yaw_towards(x - ox, z - oz), bearing_yaw(side, ecc))) < 1e-6
+@pytest.mark.parametrize("facing", [180, -180, 0, 90, -90, 40])
+def test_bearing_matches_geometry(side, ecc, facing):
+    x, _, z = target_position(side, ecc, facing_yaw=facing)
+    ox, oz = config.STAND_X + 0.5, config.STAND_Z + 0.5
+    assert abs(yaw_diff(yaw_towards(x - ox, z - oz), bearing_yaw(side, ecc, facing))) < 1e-6
+    assert abs(yaw_diff(bearing_yaw(side, ecc, facing), facing)) == pytest.approx(ecc)
+
+
+def test_spawn_angles_fit_in_the_fov():
+    # FOV 70 is vertical. Half the horizontal view on 16:9, minus a few
+    # degrees so the mob body is inside the frame, not only its center.
+    half = math.degrees(math.atan(math.tan(math.radians(config.CLIENT_FOV_DEG / 2)) * 16 / 9))
+    limit = half - 5
+    angles = (*config.ECCENTRICITIES, RehabParams().right_ecc_deg)
+    assert angles
+    assert max(angles) <= limit
 
 
 # --- SimRcon replies ---------------------------------------------------------------
@@ -111,6 +125,23 @@ def test_sim_replies_match_real_server():
 
 
 # --- trials ----------------------------------------------------------------------
+
+
+def test_spawn_is_in_front_of_where_the_player_looks():
+    clock = FakeClock()
+    rcon = SimRcon(clock=clock.now, profile=blind_player())
+    rcon.yaw_deg = 0.0  # south, +Z
+    runner = TrialRunner(rcon, ListLogger(), clock=clock.now)
+    t = runner.spawn("R", 0)
+    ox, oz = config.STAND_X + 0.5, config.STAND_Z + 0.5
+    x, _, z = t.pos
+    assert t.bearing == pytest.approx(0)
+    assert z == pytest.approx(oz + config.TARGET_DISTANCE)
+    assert x == pytest.approx(ox)
+    rcon.yaw_deg = -90.0  # east, +X
+    left = runner.spawn("L", 30)
+    assert left.bearing == pytest.approx(-120)
+    assert abs(yaw_diff(left.bearing, -90.0)) == pytest.approx(30)
 
 
 def test_hit_found_and_rt():
@@ -160,8 +191,11 @@ def test_cued_spawn_glows_and_plays_sound():
     rcon = SimRcon(clock=clock.now, profile=blind_player())
     runner = TrialRunner(rcon, ListLogger(), clock=clock.now)
     runner.spawn("L", 55, cued=True)
-    assert "Glowing:1b" in rcon.commands[0]
-    assert rcon.commands[1].startswith(f"playsound {effects.CUE_SOUND} master {config.PLAYER} ")
+    summon = next(c for c in rcon.commands if c.startswith("summon"))
+    assert "Glowing:1b" in summon
+    assert "NoAI" not in summon
+    assert "minecraft:bow" in summon and "minecraft:movement_speed" in summon
+    assert any(c.startswith(f"playsound {effects.CUE_SOUND} master {config.PLAYER} ") for c in rcon.commands)
     clock.t += 2.2
     runner.poll(clock.t)
     assert sum(c.startswith(f"playsound {effects.CUE_SOUND}") for c in rcon.commands) == 2  # repeated once
@@ -173,12 +207,14 @@ def test_sheep_false_tag_and_mob():
     log = ListLogger()
     runner = TrialRunner(rcon, log, clock=clock.now)
     s = runner.spawn("R", 15, kind="sheep", lifetime_s=8)
-    assert s.target_id == "d1" and "minecraft:sheep" in rcon.commands[0]
+    assert s.target_id == "d1" and any("minecraft:sheep" in c for c in rcon.commands)
     assert runner.n_active() == 0 and runner.n_active(include_sheep=True) == 1
     res = run_until_result(runner, clock)
     assert res[0].outcome == "false_tag" and runner.stats["false_tags"] == 1
     m = runner.spawn("L", 35, kind="mob", lifetime_s=14)
     assert m.target_id == "t1" and "NoAI" not in rcon.commands[-1] and '"mob"' in rcon.commands[-1]
+    assert "minecraft:skeleton" in rcon.commands[-1] and config.TARGET_GEAR_NBT in rcon.commands[-1]
+    assert "minecraft:bow" in rcon.commands[-1] and "movement_speed" not in rcon.commands[-1]
     assert run_until_result(runner, clock)[0].outcome == "hit"
 
 
@@ -250,13 +286,47 @@ def test_two_minute_rehab_session(tmp_path):
     assert "time set 23000" in rcon.commands
 
 
+def test_rehab_01_right_side_then_ali_left(tmp_path):
+    """First minute is right-only; once ALI goes negative, new targets are on the left."""
+    from log.events import EventLogger
+
+    class Brain:
+        def __init__(self):
+            self.t0 = None
+
+        def get(self, now):
+            if self.t0 is None:
+                self.t0 = now
+            ali = 0.3 if now - self.t0 < 70 else -0.4
+            return BrainState(t=now, ali=ali, quality="ok")
+
+    t0 = 1_800_000_000.0
+    clock = game_loop.SimClock(start=t0, speed=0)
+    rcon = SimRcon(clock=clock.now, seed=3)
+    logger = EventLogger("test-rehab-01", directory=tmp_path)
+    game_loop.run_session(mode="rehab_01", rcon=rcon, logger=logger, clock=clock,
+                          duration_s=100, sim=True, brain=Brain(), out=lambda *_: None)
+    logger.close()
+    events = read_csv(logger.path)
+    spawns = [e for e in events if e["event"] == "spawn"]
+    assert len(spawns) >= 15
+    assert all(e["side"] == "R" for e in spawns if float(e["t"]) - t0 < 60)
+    assert all(e["side"] == "L" for e in spawns if float(e["t"]) - t0 >= 74)
+    reasons = [e["reason"] for e in events if e["event"] == "decision"]
+    assert any("watching ALI" in r for r in reasons)
+    assert any("only on the left" in r for r in reasons)
+    assert "ali" in read_csv(logger.state_path)[0]
+
+
 def test_two_minute_session_with_misses(tmp_path):
     from log.events import EventLogger
 
     clock = game_loop.SimClock(start=1_800_000_000.0, speed=0)
     rcon = SimRcon(clock=clock.now, seed=7, profile=NeglectProfile(p_left_by_ecc=((0, 0.3), (90, 0.1))))
     logger = EventLogger("test-miss", directory=tmp_path)
-    game_loop.run_session(mode="rehab", rcon=rcon, logger=logger, clock=clock, duration_s=120,
+    # Unhit targets live 60 s and only one is up, so a two-minute session
+    # cannot finish three misses.
+    game_loop.run_session(mode="rehab", rcon=rcon, logger=logger, clock=clock, duration_s=360,
                           sim=True, brain=game_loop.FakeBrain(seed=2), out=lambda *_: None)
     events = read_csv(logger.path)
     kinds = [e["event"] for e in events]

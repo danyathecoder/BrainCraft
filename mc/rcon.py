@@ -231,13 +231,17 @@ class Rcon:
         glowing: bool = False,
         entity: str = config.TARGET_ENTITY,
     ) -> str:
-        """Still mob that dies from one arrow, tagged for tracking.
+        """Skeleton that holds its mark and shoots the player. One arrow kills it.
 
+        NoAI would also freeze the bow attack. Movement speed 0 keeps the
+        eccentricity fixed; follow range covers the spawn distance.
         Entity NBT on /summon is still valid in 1.20.5+ / 26.x (only item
         data moved to components).
         """
         nbt = (
-            "{NoAI:1b,Silent:1b,PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b,Health:1f,"
+            "{PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b,Health:1f,"
+            f"{config.TARGET_GEAR_NBT},"
+            f"{config.TARGET_HOLD_ATTRIBUTES_NBT},"
             f'Glowing:{int(glowing)}b,Tags:["target","{target_id}","{side}"]}}'
         )
         return self.cmd(f"summon {entity} {x:.1f} {y:.1f} {z:.1f} {nbt}")

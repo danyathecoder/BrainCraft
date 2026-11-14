@@ -78,7 +78,7 @@ def _state() -> list[dict]:
         fat = 1.8 if REST[0] - 25 <= s < REST[0] else 0.2 * (s / DURATION_S)
         rows.append({
             "t": T0 + s, "engagement_z": round(0.5 + 0.3 * ((s % 30) / 30), 3),
-            "fatigue_z": fat, "alpha_low_z": -0.2, "quality": "ok",
+            "fatigue_z": fat, "alpha_low_z": -0.2, "ali": 0.1, "quality": "ok",
             "artifact": "blink" if s % 47 == 0 else "none", "jaw_clench": False,
         })
     return rows

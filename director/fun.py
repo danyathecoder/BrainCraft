@@ -3,7 +3,7 @@
 Goal: keep engagement_z in [-0.5, 1.0].
   too calm (engagement_z < -0.5) for 15 s -> escalate one level:
     faster spawns, several targets at once, wider angles, cave sounds,
-    zombies with AI walking to the tower, sheep distractors (shooting a
+    skeletons with AI walking toward the player, sheep distractors (shooting a
     sheep = false_tag), darkness
   too hyped (engagement_z > 1.0) for 15 s -> ease off one level
   overloaded (fatigue_z > 1.5 for 5 s, or 3 misses in a row)
@@ -32,7 +32,7 @@ LEVELS = (
 LEVEL_TEXT = (
     "calm watch",
     "faster spawns, two targets at once, cave sounds",
-    "zombies walk to the tower, sheep distractors",
+    "skeletons walk toward you, sheep distractors",
     "three targets at once, darkness",
     "maximum pace",
 )
@@ -207,7 +207,7 @@ class FunDirector:
         self.pending_wave = self.p.wave_size
         return [Decision("breather_end", {}, reason=f"{self.p.breather_s:g} s breather over"),
                 Decision("wave", {"n": self.p.wave_size},
-                         reason=f"breather over → wave of {self.p.wave_size} zombies walking to the tower")]
+                         reason=f"breather over → wave of {self.p.wave_size} skeletons walking toward you")]
 
     def due_spawns(self, now: float, n_active: int) -> list[SpawnSpec]:
         if self._next_spawn is None:

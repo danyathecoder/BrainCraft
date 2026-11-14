@@ -301,7 +301,7 @@ def server_properties(rcon_password: str, rcon_port: int) -> dict[str, str]:
         "broadcast-rcon-to-ops": "false",
         "level-type": "minecraft\\:flat",
         "generate-structures": "false",
-        "difficulty": "easy",
+        "difficulty": "normal",
         "spawn-protection": "0",
         "view-distance": "8",
         "simulation-distance": "6",
@@ -510,7 +510,7 @@ def main(
         "     Windows Defender firewall prompt: allow Java on private networks only.\n"
         "  2. Set up the world:  poetry run python -m mc.world\n"
         f"  3. Minecraft Launcher -> installation {args.version} -> Multiplayer -> Direct Connection -> localhost\n"
-        "  4. Run poetry run python -m mc.world again once you are in (tp, bow, adventure mode).\n"
+        "  4. Run poetry run python -m mc.world again once you are in (on the grass, bow, adventure mode, no walking).\n"
         "  Stop the server by typing 'stop' in its console."
     )
     if args.rcon_password != "braincraft" or args.rcon_port != 25575:

@@ -26,6 +26,7 @@ class BrainState:
     engagement_z: float = 0.0  # beta / (alpha + theta), Fz + Cz
     fatigue_z: float = 0.0  # (theta + alpha) / beta, Fz
     alpha_low_z: float = 0.0  # lower alpha 8-10 Hz, Pz / Oz
+    ali: float = 0.0  # raw alpha lateralization (PO7 - PO8) / (PO7 + PO8); 0 = symmetric, not a z-score
     quality: Quality = "ok"
     artifact: Artifact = "none"
     jaw_clench: bool = False
@@ -63,8 +64,8 @@ EVENT_TYPES = {
 STATE_FIELDS = list(BrainState.__dataclass_fields__)
 
 Side = Literal["L", "R"]
-Mode = Literal["rehab", "fun"]
-MODES = ("rehab", "fun")
+Mode = Literal["rehab", "rehab_01", "fun"]
+MODES = ("rehab", "rehab_01", "fun")
 
 
 @dataclass

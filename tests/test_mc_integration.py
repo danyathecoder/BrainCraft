@@ -21,6 +21,7 @@ import threading
 
 import pytest
 
+from game import effects
 from game.geometry import target_position
 from mc import config, world
 from mc.rcon import Rcon, RconAuthError, RconConnectionError, RconTimeout, looks_like_error
@@ -175,7 +176,11 @@ def test_helpers_parse_replies(server):
         r.title('say "hi"', "@a")
         r.summon_target("t9", 1, -60, -20, "L", glowing=True)
     assert s.commands[-2] == 'title @a title {"text": "say \\"hi\\""}'
-    assert s.commands[-1].startswith("summon minecraft:husk 1.0 -60.0 -20.0 {NoAI:1b")
+    assert s.commands[-1].startswith("summon minecraft:skeleton 1.0 -60.0 -20.0 {PersistenceRequired:1b")
+    assert "NoAI" not in s.commands[-1]
+    assert config.TARGET_GEAR_NBT in s.commands[-1]
+    assert "minecraft:bow" in s.commands[-1]
+    assert config.TARGET_HOLD_ATTRIBUTES_NBT in s.commands[-1]
     assert 'Glowing:1b,Tags:["target","t9","L"]' in s.commands[-1]
 
 
@@ -247,16 +252,39 @@ def test_setup_without_player_skips_player_steps(capsys):
     r = FakeRcon()
     world.setup(r)
     assert r.sent[0].startswith("forceload add ")
-    assert not any(c.startswith(("tp ", "give ", "gamemode ")) for c in r.sent)
+    assert world.clear_tower_cmd() in r.sent
+    assert not any(c.startswith(("tp ", "give ", "gamemode ", "attribute ")) for c in r.sent)
+    assert not any("stone_bricks" in c for c in r.sent)
     assert "nobody online" in capsys.readouterr().out
 
 
 def test_setup_with_player_places_them():
     r = FakeRcon(players=["Steve"])
     world.setup(r, "Steve")
-    top = config.GROUND_Y + config.TOWER_HEIGHT
-    assert f"tp Steve {config.TOWER_X + 0.5} {top} {config.TOWER_Z + 0.5} 180 0" in r.sent
+    assert world.player_anchor_cmd("Steve") in r.sent
+    assert f"spawnpoint Steve {config.STAND_X} {config.GROUND_Y} {config.STAND_Z}" in r.sent
     assert "gamemode adventure Steve" in r.sent
+    for c in world.lock_movement_cmds("Steve"):
+        assert c in r.sent
+    assert not any("stone_bricks" in c for c in r.sent)
+
+
+def test_session_start_stands_on_the_ground_and_locks_movement():
+    class Rec:
+        def __init__(self):
+            self.sent: list[str] = []
+
+        def cmd(self, c):
+            self.sent.append(c)
+            return "ok"
+
+    r = Rec()
+    effects.Effects(r, "Steve").session_start("rehab")
+    assert world.clear_tower_cmd() in r.sent
+    assert world.player_anchor_cmd("Steve") in r.sent
+    for c in world.lock_movement_cmds("Steve"):
+        assert c in r.sent
+    assert not any("stone_bricks" in c for c in r.sent)
 
 
 def test_forceload_covers_all_targets():

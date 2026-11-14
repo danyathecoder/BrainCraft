@@ -48,6 +48,7 @@ def test_hold_timer_ignores_bad_quality_and_resets():
 
 def test_make_director():
     assert make_director("rehab").mode == "rehab"
+    assert make_director("rehab_01").mode == "rehab_01"
     assert make_director("fun").mode == "fun"
     with pytest.raises(ValueError):
         make_director("nope")
@@ -61,21 +62,21 @@ def test_staircase_up_and_window_reset():
     assert d.left_ecc_deg == 15 and d.p_left == 0.5
     out = feed(d, [True, True, False, True, True])
     assert [x.action for x in out] == ["staircase_up"]
-    assert d.left_ecc_deg == 35 and d.p_left == pytest.approx(0.6)
-    assert "4/5" in out[0].reason and "15° → 35°" in out[0].reason
+    assert d.left_ecc_deg == 25 and d.p_left == pytest.approx(0.6)
+    assert "4/5" in out[0].reason and "15° → 25°" in out[0].reason
     # window was reset: four more hits are not enough for another step
     assert feed(d, [True] * 4, t0=10) == []
     assert feed(d, [True], t0=20)[0].action == "staircase_up"
-    assert d.left_ecc_deg == 55 and d.p_left == pytest.approx(0.7)
+    assert d.left_ecc_deg == 35 and d.p_left == pytest.approx(0.7)
     feed(d, [True] * 5, t0=30)
-    assert d.left_ecc_deg == 75 and d.p_left == pytest.approx(0.7)  # p_left capped
+    assert d.left_ecc_deg == 45 and d.p_left == pytest.approx(0.7)  # p_left capped
     assert feed(d, [True] * 5, t0=40) == []  # top of the staircase: nothing changes
-    assert d.left_ecc_deg == 75
+    assert d.left_ecc_deg == 45
 
 
 def test_staircase_down_turns_cues_on_then_off():
     d = RehabDirector(seed=2)
-    feed(d, [True] * 5)  # -> 35 deg
+    feed(d, [True] * 5)  # -> 25 deg
     out = feed(d, [False, True, False, True, False], t0=10)
     assert [x.action for x in out] == ["staircase_down"]
     assert d.left_ecc_deg == 15 and d.cues_on
@@ -202,18 +203,26 @@ def test_challenge_needs_more_than_85_percent_and_has_floor():
 # --- scheduling ----------------------------------------------------------------
 
 
-def test_one_target_at_a_time_and_interval():
+def test_one_target_unhit_gap_and_hit_gap():
     d = RehabDirector(seed=3)
     d.start(0)
     assert d.due_spawns(1.0, 0) == []  # lead-in
     first = d.due_spawns(2.0, 0)
-    assert len(first) == 1 and first[0].side in "LR"
+    assert len(first) == 1 and first[0].side in "LR" and first[0].lifetime_s == 60
     if first[0].side == "R":
         assert first[0].ecc_deg == 35
-    assert d.due_spawns(7.0, 1) == []  # one already active
-    d.on_trial_result(first[0].side, True, 3.0)
-    assert d.due_spawns(5.9, 0) == []  # N = 4 s after the previous spawn
-    assert len(d.due_spawns(6.0, 0)) == 1
+    # one is already up, so nothing else appears even after the 4 s gap
+    assert d.due_spawns(6.0, 1) == []
+    assert d.due_spawns(30.0, 1) == []
+    # a hit brings the next target 1 s later
+    d.on_trial_result(first[0].side, True, 12.0)
+    assert d.due_spawns(12.9, 0) == []
+    assert len(d.due_spawns(13.0, 0)) == 1
+    # a miss waits 4 s, and still only one target
+    d.on_trial_result("R", False, 20.0)
+    assert d.due_spawns(23.9, 0) == []
+    assert len(d.due_spawns(24.0, 0)) == 1
+    assert d.due_spawns(24.0, 1) == []
 
 
 def test_status_fields():
@@ -259,6 +268,126 @@ def test_fun_flare_cooldown_and_fatigue_overload():
     assert [x.action for x in f.on_state(st(jaw=True), 30)] == ["flare"]
     out = run_states(f, [st(fat=2.0)] * 5, t0=40)
     assert [x.action for x in out] == ["breather_start"]
+
+
+# --- rehab 01 ----------------------------------------------------------------
+
+
+def _rehab01(**kwargs):
+    from director.rehab_01 import Rehab01Director, Rehab01Params
+
+    params = kwargs.pop("params", None) or Rehab01Params(
+        lead_in_s=0.0, spawn_interval_s=1.0, right_only_s=10.0, ali_after_spawns=3,
+    )
+    return Rehab01Director(params=params, **kwargs)
+
+
+def _drive(d, ali=0.0, quality="ok", until=30.0, step=1.0):
+    """Step the director; return (spawn specs, decisions)."""
+    specs, decisions = [], []
+    t = 0.0
+    while t <= until + 1e-9:
+        decisions += d.on_state(BrainState(t=t, ali=ali, quality=quality), t)
+        for spec in d.due_spawns(t, 0):
+            specs.append((t, spec))
+        t += step
+    return specs, decisions
+
+
+def test_rehab01_first_window_is_right_only_even_if_ali_is_negative():
+    d = _rehab01(seed=1)
+    d.start(0)
+    specs, decisions = _drive(d, ali=-0.8, until=9)
+    assert specs and all(spec.side == "R" for _, spec in specs)
+    assert {spec.ecc_deg for _, spec in specs} <= {15, 25, 35, 45}
+    assert d.status()["zone"] == "right" and d.status()["p_left"] == 0.0
+    assert any(x.action == "ali_watch" for x in decisions)
+    assert all(x.action != "spawn_zone" for x in decisions)
+    later, later_dec = _drive_from(d, t0=10, until=14, ali=-0.8)
+    assert later and all(spec.side == "L" for _, spec in later)
+    assert any("first 10 s over and ALI" in x.reason for x in later_dec)
+
+
+def test_rehab01_whole_view_then_left_when_ali_drops():
+    d = _rehab01(seed=2)
+    d.start(0)
+    early, _ = _drive(d, ali=0.4, until=9)
+    assert early and all(spec.side == "R" for _, spec in early)
+    # minute is over, three targets already spawned, ALI still positive: both sides
+    mid, mid_dec = _drive_from(d, t0=10, until=25, ali=0.4)
+    assert d.status()["zone"] == "full" and d.status()["p_left"] == 0.5
+    assert {spec.side for _, spec in mid} == {"L", "R"}
+    assert any("whole field of view" in x.reason for x in mid_dec)
+    late, late_dec = _drive_from(d, t0=26, until=40, ali=-0.25)
+    assert d.status()["zone"] == "left" and d.status()["p_left"] == 1.0
+    assert late and all(spec.side == "L" for _, spec in late)
+    assert any("targets only on the left" in x.reason for x in late_dec)
+    back, back_dec = _drive_from(d, t0=41, until=55, ali=0.0)
+    assert d.status()["zone"] == "full"
+    assert {spec.side for _, spec in back} == {"L", "R"}
+    assert any("≥ 0" in x.reason for x in back_dec)
+    assert all_have_reasons(mid_dec + late_dec + back_dec)
+
+
+def _drive_from(d, t0, until, ali=0.0, quality="ok", step=1.0):
+    specs, decisions = [], []
+    t = t0
+    while t <= until + 1e-9:
+        decisions += d.on_state(BrainState(t=t, ali=ali, quality=quality), t)
+        for spec in d.due_spawns(t, 0):
+            specs.append((t, spec))
+        t += step
+    return specs, decisions
+
+
+def test_rehab01_bad_quality_does_not_move_ali():
+    d = _rehab01(seed=3)
+    d.start(0)
+    _drive(d, ali=0.2, until=12)
+    assert d.status()["zone"] == "full"
+    decisions = d.on_state(BrainState(t=13, ali=-0.9, quality="bad"), 13)
+    assert d.status()["zone"] == "full" and decisions == []
+    decisions = d.on_state(BrainState(t=14, ali=-0.9, quality="ok"), 14)
+    assert d.status()["zone"] == "left"
+    assert decisions and decisions[0].action == "spawn_zone"
+
+
+def test_rehab01_ignores_negative_ali_until_ten_targets():
+    from director.rehab_01 import Rehab01Params
+
+    d = _rehab01(seed=4, params=Rehab01Params(
+        lead_in_s=0, spawn_interval_s=5, right_only_s=10, ali_after_spawns=10,
+    ))
+    d.start(0)
+    specs, _ = _drive(d, ali=-0.5, until=40, step=5)
+    # 0 and 5 are still inside the right-only window; 10..40 are the whole view
+    assert [spec.side for _, spec in specs[:2]] == ["R", "R"]
+    assert d.n_spawned == 9 and d.status()["zone"] == "full"
+    tenth = d.due_spawns(45, 0)
+    assert d.n_spawned == 10 and tenth and tenth[0].side in "LR"
+    out = d.on_state(BrainState(t=46, ali=-0.5), 46)
+    assert d.status()["zone"] == "left"
+    assert [x.action for x in out] == ["ali_watch", "spawn_zone"]
+    assert d.due_spawns(50, 0)[0].side == "L"
+
+
+def test_rehab01_one_target_unhit_gap_and_hit_gap():
+    from director.rehab_01 import Rehab01Director
+
+    d = Rehab01Director(seed=1)
+    d.start(0)
+    assert d.due_spawns(1.0, 0) == []
+    first = d.due_spawns(2.0, 0)
+    assert len(first) == 1 and first[0].lifetime_s == 60 and first[0].side == "R"
+    assert d.due_spawns(6.0, 1) == []
+    assert d.due_spawns(30.0, 1) == []
+    d.on_trial_result(first[0].side, True, 12.0)
+    assert d.due_spawns(12.9, 0) == []
+    assert len(d.due_spawns(13.0, 0)) == 1
+    d.on_trial_result("R", False, 20.0)
+    assert d.due_spawns(23.9, 0) == []
+    assert len(d.due_spawns(24.0, 0)) == 1
+    assert d.due_spawns(24.0, 1) == []
 
 
 def test_fun_spawns_several_at_higher_levels():
