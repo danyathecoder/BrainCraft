@@ -665,7 +665,8 @@ and the right `source`.
 Drives the game: reads `/state`, spawns targets over RCON, detects
 hits/misses, runs the director, logs to `sessions/`.
 
-**Rehab mode in one paragraph.**
+**Rehab mode in one paragraph** (full rules for both modes:
+[modes.md](modes.md)).
 - **Warm-up:** the first 60 s, targets on the right only.
 - **Side:** after that, the side is drawn with `p_left`. A sustained
   negative ALI (rightward attention bias, relative to the player's
