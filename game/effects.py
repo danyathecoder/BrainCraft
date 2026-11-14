@@ -13,6 +13,7 @@ import logging
 import re
 
 from mc import config
+from mc.world import clear_tower_cmd, lock_movement_cmds, player_anchor_cmd
 
 log = logging.getLogger("braincraft.effects")
 
@@ -68,6 +69,17 @@ CAVE_SOUND = "minecraft:ambient.cave"
 FALSE_TAG_SOUND = "minecraft:entity.villager.no"
 WAVE_SOUND = "minecraft:event.raid.horn"
 
+_MODE_SUBTITLE = {
+    "rehab": "Rehab: scan left and right",
+    "rehab_01": "Rehab 01: right side, then the whole view",
+    "fun": "Fun: hold your ground",
+}
+_MODE_SWITCH = {
+    "rehab": "Rehab mode",
+    "rehab_01": "Rehab 01",
+    "fun": "Fun mode",
+}
+
 
 def actionbar_cmd(msg: str, color: str | None = None, player: str = P) -> str:
     return f"title {player} actionbar {text(msg, color)}"
@@ -101,13 +113,19 @@ def smoke_cmd(x: float, y: float, z: float) -> str:
     return f"particle minecraft:large_smoke {x:.1f} {y + 1:.1f} {z:.1f} 0.4 0.6 0.4 0.02 40 force"
 
 
-MOB_ENTITY = getattr(config, "TARGET_ENTITY", "minecraft:husk")  # husks don't burn at dawn
+MOB_ENTITY = getattr(config, "TARGET_ENTITY", "minecraft:skeleton")
 
 
 def summon_mob_cmd(target_id: str, x: float, y: float, z: float, side: str,
                    entity: str = MOB_ENTITY) -> str:
-    """Target mob WITH AI: walks toward the player on the tower. One arrow kills it."""
+    """Skeleton with AI: walks toward the player and shoots. One arrow kills it.
+
+    Same bow and helmet as the still targets, so it fires from the spawn
+    distance and does not burn at dawn.
+    """
     nbt = (f'{{PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b,Health:1f,'
+           f'{config.TARGET_GEAR_NBT},'
+           f'{config.TARGET_ATTRIBUTES_NBT},'
            f'Tags:["target","{target_id}","{side}","mob"]}}')
     return f"summon {entity} {x:.1f} {y:.1f} {z:.1f} {nbt}"
 
@@ -136,15 +154,16 @@ class Effects:
 
     def session_start(self, mode: str) -> None:
         p = self.player
-        top = config.GROUND_Y + config.TOWER_HEIGHT
         self.clear_entities()
+        self.cmd(clear_tower_cmd())
         self.cmd("time set midnight")
         self.cmd("weather clear")
         self.cmd(f"effect clear {p}")
-        self.cmd(f"tp {p} {config.TOWER_X + 0.5} {top} {config.TOWER_Z + 0.5} 180 0")
+        self.cmd(player_anchor_cmd(p))
+        for c in lock_movement_cmds(p):
+            self.cmd(c)
         self.cmd(f"give {p} minecraft:arrow 64")
-        self.cmd(subtitle_cmd("Rehab: scan left and right" if mode == "rehab" else "Fun: hold the tower",
-                              player=p))
+        self.cmd(subtitle_cmd(_MODE_SUBTITLE.get(mode, mode), player=p))
         self.cmd(title_cmd("BrainCraft", "gold", player=p))
 
     def session_end(self) -> None:
@@ -158,10 +177,10 @@ class Effects:
         self.cmd("kill @e[tag=distractor]")
 
     def mode_switch(self, mode: str) -> None:
-        if mode == "rehab":
+        if mode != "fun":
             self.cmd(f"effect clear {self.player} minecraft:darkness")
             self.cmd("time set midnight")
-        self.cmd(subtitle_cmd("Rehab mode" if mode == "rehab" else "Fun mode", player=self.player))
+        self.cmd(subtitle_cmd(_MODE_SWITCH.get(mode, mode), player=self.player))
         self.cmd(title_cmd("Mode switch", "gold", player=self.player))
 
     # rest phase (rehab) --------------------------------------------------
@@ -222,7 +241,7 @@ class Effects:
 
     def wave(self, n: int) -> None:
         self.cmd(sound_at_player_cmd(WAVE_SOUND, 1, 1, player=self.player))
-        self.cmd(subtitle_cmd(f"{n} zombies incoming", "red", player=self.player))
+        self.cmd(subtitle_cmd(f"{n} skeletons incoming", "red", player=self.player))
         self.cmd(title_cmd("Wave!", "red", player=self.player))
 
     # director decisions --------------------------------------------------

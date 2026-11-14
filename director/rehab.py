@@ -3,9 +3,8 @@
 Visual scanning training inspired by therapy for post-stroke spatial
 neglect (left side neglected). Pure logic: time is passed in.
 
-Trials: one target at a time. The next target appears N s after the
-previous spawn (start N = 4), but never while a target is still up and
-not sooner than `min_gap_s` after the previous one ended (hit or miss).
+Trials: one target at a time. An unhit target lives 60 s, then the
+next appears 4 s after that miss. A hit brings the next target in 1 s.
 Side drawn with p_left (start 0.5). Right targets stay at a fixed
 moderate eccentricity (`right_ecc_deg`, 35 deg) as a stable control
 condition, so left/right differences in the report reflect the left
@@ -39,11 +38,13 @@ from mc import config
 
 @dataclass
 class RehabParams:
-    spawn_interval_s: float = 4.0
+    spawn_interval_s: float = 4.0  # next target when the previous was not hit
     min_interval_s: float = 2.0
     max_interval_s: float = 6.0
     interval_step_s: float = 0.5
-    min_gap_s: float = 1.0  # pause after a trial ends before the next spawn
+    hit_gap_s: float = 1.0  # next target after a hit
+    max_active: int = 1
+    target_lifetime_s: float = 60.0  # how long an unhit target stays
     lead_in_s: float = 2.0  # first spawn after session start
     p_left: float = 0.5
     p_left_step: float = 0.1
@@ -117,7 +118,9 @@ class RehabDirector:
     def start(self, now: float) -> list[Decision]:
         self._next_ok = now + self.p.lead_in_s
         return [Decision("rehab_start", self.status() | {"right_ecc_deg": self.p.right_ecc_deg},
-                         reason=(f"rehab session: one target every {self.spawn_interval_s:.1f} s, "
+                         reason=(f"rehab session: one target at a time, "
+                                 f"next after {self.spawn_interval_s:.1f} s if not hit "
+                                 f"or {self.p.hit_gap_s:.1f} s after a hit, "
                                  f"p_left {self.p_left:.1f}, left targets at {self.left_ecc_deg}°, "
                                  f"right targets at {self.p.right_ecc_deg:g}°"))]
 
@@ -132,6 +135,10 @@ class RehabDirector:
         if kind != "target":
             return out
         self._last_end = now
+        # A hit brings the next target in 1 s. A miss (the minute ran out)
+        # waits the normal 4 s. Either way this replaces the timer set at spawn.
+        gap = self.p.hit_gap_s if hit else self.spawn_interval_s
+        self._next_ok = now + gap
         self.recent.append(hit)
         if side != "L":
             return out
@@ -258,17 +265,21 @@ class RehabDirector:
                                  f"{rate:.0%} > {self.p.challenge_hit_rate:.0%} over last {n} trials "
                                  f"→ faster: spawn interval {old:.1f} → {new:.1f} s"))]
 
+    def _spec(self, side: str, ecc_deg: float, cued: bool = False) -> SpawnSpec:
+        return SpawnSpec(side, float(ecc_deg), cued=cued, lifetime_s=self.p.target_lifetime_s)
+
     def due_spawns(self, now: float, n_active: int) -> list[SpawnSpec]:
-        """What to spawn now: at most one target, only when none is up."""
+        """One new target, and only when none is already up.
+
+        After a miss the next waits `spawn_interval_s` (4 s). After a hit
+        it waits `hit_gap_s` (1 s). An unhit target stays for `target_lifetime_s`.
+        """
         if self._next_ok is None:
             self._next_ok = now + self.p.lead_in_s
-        if self.resting or n_active > 0 or now < self._next_ok:
-            return []
-        if self._last_spawn is not None and now < self._last_spawn + self.spawn_interval_s:
-            return []
-        if self._last_end is not None and now < self._last_end + self.p.min_gap_s:
+        if self.resting or n_active >= self.p.max_active or now < self._next_ok:
             return []
         self._last_spawn = now
+        self._next_ok = now + self.spawn_interval_s
         if self.rng.random() < self.p_left:
             cued = self.cues_left > 0
             if cued:
@@ -276,5 +287,5 @@ class RehabDirector:
                 if self.cues_left == 0:
                     self._pending.append(Decision(
                         "cues_off", {}, reason=f"{self.p.cue_trials} cued left targets shown → cues off"))
-            return [SpawnSpec("L", float(self.left_ecc_deg), cued=cued)]
-        return [SpawnSpec("R", float(self.p.right_ecc_deg))]
+            return [self._spec("L", self.left_ecc_deg, cued)]
+        return [self._spec("R", self.p.right_ecc_deg)]

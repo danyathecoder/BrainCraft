@@ -119,6 +119,7 @@
   <h1>BrainCraft <small>neuroadaptive scanning training</small></h1>
   <div class="modes" id="modes">
     <button data-mode="rehab">Rehab</button>
+    <button data-mode="rehab_01">Rehab 01</button>
     <button data-mode="fun">Fun</button>
   </div>
   <span class="modenote" id="modenote"></span>
@@ -289,9 +290,12 @@ async function pollState() {
     const ageServer = num(s.t) !== null ? Math.max(0, now / 1000 - s.t) : null;
     const q = s.quality === "ok" ? `<b>ok</b>` : `<b class="bad">${esc(s.quality)}</b>`;
     const a = s.artifact === "none" ? `<b>none</b>` : `<b class="warnc">${esc(s.artifact)}</b>`;
+    const ali = num(s.ali);
+    const aliTxt = ali === null ? "–" : `${ali >= 0 ? "+" : ""}${ali.toFixed(2)}`;
     $("signal").innerHTML =
       `<span>source: <b>${esc(s.source)}</b></span><span>signal quality: ${q}</span>` +
       `<span>artifact: ${a}</span><span>jaw clench: <b class="${s.jaw_clench ? "warnc" : ""}">${s.jaw_clench ? "YES" : "no"}</b></span>` +
+      `<span>ALI: <b class="num${ali !== null && ali < 0 ? " warnc" : ""}">${aliTxt}</b></span>` +
       (ageServer !== null && ageServer < 3600 ? `<span>age: <b class="num">${ageServer.toFixed(1)} s</b></span>` : "");
     $("mock").hidden = s.source !== "mock";
   } catch (e) {
@@ -421,11 +425,13 @@ function sendMock(body) {
 
 $("sliders").innerHTML = KEYS.map(k =>
   `<div class="zrow"><span class="zname">${k}</span><input type="range" min="-3" max="3" step="0.1" value="0" data-key="${k}"><span class="num">0.0</span></div>`
-).join("");
+).join("") +
+  `<div class="zrow"><span class="zname">ali</span><input type="range" min="-1" max="1" step="0.05" value="0" data-key="ali"><span class="num">0.00</span></div>`;
 document.querySelectorAll("#sliders input").forEach(el =>
   el.addEventListener("input", () => {
-    el.nextElementSibling.textContent = parseFloat(el.value).toFixed(1);
-    sendMock({ [el.dataset.key]: parseFloat(el.value) });
+    const v = parseFloat(el.value);
+    el.nextElementSibling.textContent = el.dataset.key === "ali" ? v.toFixed(2) : v.toFixed(1);
+    sendMock({ [el.dataset.key]: v });
   }));
 $("jaw").addEventListener("change", e => sendMock({ jaw_clench: e.target.checked }));
 $("badq").addEventListener("change", e => sendMock({ quality: e.target.checked ? "bad" : "ok" }));

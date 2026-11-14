@@ -7,7 +7,7 @@ PY      := poetry run python
 RUN     := $(PY) scripts/braincraft.py
 EEG     ?= gpype      # gpype | unicorn | synthetic | mock
 GAME    ?= rcon       # rcon | sim | none
-MODE    ?= rehab      # rehab | fun
+MODE    ?= rehab      # rehab | rehab_01 | fun
 PLAYER  ?= player
 DURATION ?= 600
 MC_NAME ?=            # optional: only these Minecraft usernames may join, e.g. MC_NAME="Steve Alex"

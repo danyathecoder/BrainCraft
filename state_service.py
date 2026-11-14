@@ -5,7 +5,7 @@ Endpoints:
 - POST /mock           set mock values (mock source only, HUD sliders)
 - GET/POST /status     game status (GameStatus), game loop -> HUD
 - GET/POST /decisions  director decisions with reasons, game loop -> HUD
-- GET/POST /mode       "rehab" | "fun", HUD button -> game loop
+- GET/POST /mode       "rehab" | "rehab_01" | "fun", HUD button -> game loop
 - GET  /raw            last seconds of filtered EEG for the HUD scope (eeg source)
 - GET  /               HUD page
 
@@ -95,6 +95,7 @@ class MockUpdate(BaseModel):
     engagement_z: float | None = None
     fatigue_z: float | None = None
     alpha_low_z: float | None = None
+    ali: float | None = None
     quality: str | None = None
     artifact: str | None = None
     jaw_clench: bool | None = None

@@ -106,7 +106,7 @@ class FakeBrain:
         self.calm_len_s = calm_len_s
         self.bad_quality_p = bad_quality_p
         self.tau, self.sd = tau_s, sd
-        self.x = {"engagement_z": 0.0, "fatigue_z": 0.0, "alpha_low_z": 0.0}
+        self.x = {"engagement_z": 0.0, "fatigue_z": 0.0, "alpha_low_z": 0.0, "ali": 0.0}
         self._t0: float | None = None
         self._last: float | None = None
 
@@ -117,7 +117,8 @@ class FakeBrain:
         self._last = now
         for k in self.x:  # OU: mean 0, stationary sd = self.sd
             self.x[k] += -self.x[k] * dt / self.tau + self.sd * math.sqrt(2 * dt / self.tau) * self.rng.gauss(0, 1)
-        eng, fat, alpha = self.x["engagement_z"], self.x["fatigue_z"], self.x["alpha_low_z"]
+        eng, fat, alpha, ali = (self.x["engagement_z"], self.x["fatigue_z"],
+                                self.x["alpha_low_z"], self.x["ali"])
         if self.fatigue_at is not None:
             el = now - self._t0 - self.fatigue_at
             if 0 <= el < self.fatigue_len_s:
@@ -137,7 +138,8 @@ class FakeBrain:
         elif r < 0.035:
             artifact = "jaw"
         return BrainState(t=now, engagement_z=round(eng, 3), fatigue_z=round(fat, 3),
-                          alpha_low_z=round(alpha, 3), quality="bad" if bad else "ok",
+                          alpha_low_z=round(alpha, 3), ali=round(ali, 3),
+                          quality="bad" if bad else "ok",
                           artifact="motion" if bad else artifact, jaw_clench=artifact == "jaw")
 
 

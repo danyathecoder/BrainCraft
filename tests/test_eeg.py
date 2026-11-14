@@ -74,6 +74,17 @@ def test_fatigue_drift_lowers_engagement():
     assert late < early
 
 
+def test_ali_is_negative_when_right_alpha_is_higher():
+    even = np.ones(8)
+    assert F.ali({"alpha": even}) == pytest.approx(0.0)
+    right_heavy = even.copy()
+    right_heavy[CH["PO8"]] = 3.0
+    assert F.ali({"alpha": right_heavy}) < 0
+    left_heavy = even.copy()
+    left_heavy[CH["PO7"]] = 4.0
+    assert F.ali({"alpha": left_heavy}) > 0
+
+
 def test_band_powers_shapes_and_notch():
     gen = SyntheticEEG(seed=4, line_noise_uv=50.0)
     raw = eeg_seconds(gen, 4)
@@ -265,8 +276,10 @@ def test_pipeline_smoke(tmp_path):
         assert st.quality in ("ok", "bad")
         assert st.artifact in ("none", "blink", "jaw", "motion")
         assert isinstance(st.jaw_clench, bool)
-        for v in (st.engagement_z, st.fatigue_z, st.alpha_low_z, st.t):
+        for v in (st.engagement_z, st.fatigue_z, st.alpha_low_z, st.ali, st.t):
             assert isinstance(v, float) and np.isfinite(v)
+        if st.quality == "ok":
+            assert -1.0 <= st.ali <= 1.0
     ok = [st for st in states if st.quality == "ok"]
     assert ok and abs(ok[-1].engagement_z) < 4
 

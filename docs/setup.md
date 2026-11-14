@@ -51,7 +51,7 @@ What `make start` does (`--eeg gpype --game rcon`):
    reports `source=eeg`** and opens the HUD (<http://localhost:8000>),
    so the raw EEG scope is visible while Minecraft starts;
 4. starts the Minecraft server if RCON isn't answering, runs `mc.world`,
-   waits for you to join `localhost`, then puts you on the tower;
+   waits for you to join `localhost`, then puts you on the grass facing north;
 5. starts the game loop; when the session ends it opens the report and
    keeps the service and HUD running.
 
@@ -238,7 +238,7 @@ What it does, in `server/` (git-ignored):
 4. Writes/merges `server.properties` (keeps keys it does not manage):
    `enable-rcon=true`, `rcon.port=25575`, `rcon.password=braincraft`,
    `broadcast-rcon-to-ops=false`, `level-type=minecraft\:flat`,
-   `generate-structures=false`, `difficulty=easy`, `spawn-protection=0`,
+   `generate-structures=false`, `difficulty=normal`, `spawn-protection=0`,
    `view-distance=8`, `simulation-distance=6`, `online-mode=true`,
    `motd=BrainCraft`, `spawn-monsters=false`, `allow-flight=true`, and
    `server-ip=` (empty) if missing.
@@ -315,9 +315,10 @@ poetry run python -m mc.world               # or: --player <name>
 It force-loads the arena chunks (needed: with nobody online, chunks are
 not loaded and targets can't be summoned), sets game rules (night
 forever, no mobs/weather, no drops, keep inventory…), sets midnight,
-clear weather, easy difficulty, builds the tower, sets the world spawn,
-and, if a player is online, puts them on the tower facing north in
-adventure mode with a bow and arrows. With nobody online it prints
+clear weather, normal difficulty, removes the old stone tower, sets the world spawn,
+and, if a player is online, puts them on the grass facing north in
+adventure mode with a bow and arrows. Walking, jumping, and knockback are
+off; looking around stays on. With nobody online it prints
 `nobody online, skipping…`; run it again after joining. Safe to rerun.
 
 ### 4.5 Check RCON works
@@ -364,7 +365,7 @@ Fabric client mod is future work).
    Version **26.3** (must match the server exactly) → Create.
 2. **Play** with that installation → **Multiplayer** → **Direct
    Connection** → Server address `localhost` → Join Server.
-3. Run `poetry run python -m mc.world` again (puts you on the tower).
+3. Run `poetry run python -m mc.world` again (puts you on the grass, facing north).
 
 **Required settings** (Options):
 
@@ -379,8 +380,9 @@ Fabric client mod is future work).
 Adventure mode, bow and arrows are set by `mc.world`; don't change the
 game mode by hand.
 
-**Check:** you stand on a small stone tower in a flat night world,
-facing north, with a bow. F3 shows `Facing: north`.
+**Check:** you stand on the grass in a flat night world, facing north,
+with a bow. WASD and jump do nothing; the mouse still turns you.
+F3 shows `Facing: north`.
 
 **Common errors:** `Outdated client!` / `Outdated server!` → versions
 differ; pick the 26.3 installation. `Failed to log in: Invalid session`
@@ -691,7 +693,7 @@ variable (default `@p`, the nearest player, fine with one player).
 With `--rcon` and no state service, EEG rules pause (quality "bad")
 until `/state` answers. Ctrl+C stops and prints the CSV paths.
 
-**Check:** targets appear left/right of the tower; the HUD decision log
+**Check:** targets appear left/right of where you stand; the HUD decision log
 fills; two CSVs (`<stamp>-<name>.csv` and `-state.csv`) appear in
 `sessions/`.
 
@@ -871,7 +873,7 @@ Arrive early; do it in this order.
 3. [ ] **World:** `poetry run python -m mc.world`.
 4. [ ] **Client:** launch 26.3 → Direct Connection `localhost`. FOV 70,
        render distance 8, Pause on Lost Focus OFF (F3+P), fullscreen.
-       Run `python -m mc.world` again → player on the tower with a bow.
+       Run `python -m mc.world` again → player on the grass with a bow, unable to walk.
 5. [ ] **Headset:** on and fitted, then in its own terminal
        `poetry run python -m eeg.gpype_bridge --record sessions/raw`
        (fallback: Unicorn LSL streaming). Scope shows clean traces.
@@ -958,6 +960,10 @@ service crashed or (EEG mode) the LSL stream stopped. Check the
 uvicorn terminal, restart the bridge (or Unicorn LSL streaming), or
 fall back to mock mode.
 
-**Targets burn at dawn** (rest phase) → zombies burn in daylight. The
-default target is `minecraft:husk`, which doesn't; check
-`MC_TARGET_ENTITY` isn't set to a zombie.
+**Targets burn at dawn** (rest phase) → skeletons and zombies burn in
+daylight, and that death is logged as a hit. Summons equip an
+unbreakable leather helmet (`TARGET_GEAR_NBT` in `mc/config.py`),
+which suppresses sunlight. A custom `MC_TARGET_ENTITY` still gets that
+helmet; if a summon is missing it, dawn will kill the mob. The same
+gear puts a bow in the main hand. Still targets keep movement speed 0
+so they shoot from the spawn angle; wave skeletons walk in and shoot.

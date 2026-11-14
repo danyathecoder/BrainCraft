@@ -54,7 +54,7 @@ class SpawnSpec:
     side: str  # "L" | "R"
     ecc_deg: float
     cued: bool = False
-    kind: str = "target"  # "target" (still zombie), "mob" (walking zombie), "sheep"
+    kind: str = "target"  # "target" (still skeleton), "mob" (walking skeleton), "sheep"
     lifetime_s: float | None = None  # None -> TrialRunner default
 
 

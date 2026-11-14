@@ -88,7 +88,7 @@ class SimEntity:
 class SimRcon(Rcon):
     def __init__(self, clock=time.time, seed: int | None = 0, profile: NeglectProfile | None = None,
                  player_name: str = "SimPlayer", player_online: bool = True,
-                 origin: tuple[float, float] = (config.TOWER_X + 0.5, config.TOWER_Z + 0.5),
+                 origin: tuple[float, float] = (config.STAND_X + 0.5, config.STAND_Z + 0.5),
                  step_s: float = 0.05):
         # deliberately no super().__init__(): there is no socket
         self._lock = threading.RLock()
@@ -217,7 +217,9 @@ class SimRcon(Rcon):
         if e.attended or not e.alive:
             return
         pr = self.profile
-        ecc = abs(normalize(e.bearing - 180.0))
+        # Eccentricity from the direction the player is looking. Targets are
+        # spawned in that view, so "left" is left of the current yaw.
+        ecc = abs(normalize(e.bearing - self.yaw_deg))
         if "distractor" in e.tags:
             p = pr.sheep_shoot_p
         elif "target" in e.tags:
@@ -256,7 +258,9 @@ class SimRcon(Rcon):
             self._queue.pop(0)
             self._head_since = t
         head = self.entities[self._queue[0]] if self._queue else None
-        goal = 180.0
+        # Hold the current look. The next target is placed in this view,
+        # so drifting back to north would turn the player away from it.
+        goal = self.yaw_deg
         speed = pr.idle_speed_dps
         if head is not None:
             if head.turn_at is None:

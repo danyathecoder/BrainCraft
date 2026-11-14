@@ -13,6 +13,8 @@
 
 BrainState semantics:
 - *_z: smoothed z-scores vs the baseline (log10 indices, see eeg.features);
+- ali: smoothed raw alpha lateralization (PO7 vs PO8), not a z-score;
+  0 is symmetric, negative means more alpha at PO8 than PO7;
 - artifact: artifact in the newest second ("none"|"blink"|"jaw"|"motion");
 - jaw_clench: artifact == "jaw" (usable as a deliberate trigger);
 - quality "bad": artifact now, a jaw/motion still inside the 4 s window,
@@ -44,12 +46,13 @@ from eeg.calibrate import (
     quick_baseline,
     run_calibration,
 )
-from eeg.features import ANALYZER_VERSION, Analyzer
+from eeg.features import ANALYZER_VERSION, Analyzer, ali as ali_index
 from eeg.stream import EEGStream, StreamNotFound
 
 log = logging.getLogger("eeg.pipeline")
 
 Z_FIELDS = {"engagement": "engagement_z", "fatigue": "fatigue_z", "alpha_low": "alpha_low_z"}
+HELD_FIELDS = tuple(Z_FIELDS.values()) + ("ali",)
 STALE_S = 2.0  # no new samples for this long -> quality bad
 RETRY_S = 3.0
 
@@ -88,7 +91,7 @@ def run(
     baseline_path = Path(baseline_path) if baseline_path else default_baseline_path()
     name = name or os.environ.get("BRAINCRAFT_LSL_NAME") or None
     prompt = prompt or (lambda msg: (print(msg, flush=True), log.info(msg)))
-    zero = {f: 0.0 for f in Z_FIELDS.values()}
+    zero = {f: 0.0 for f in HELD_FIELDS}
     own_stream = stream is None
 
     try:
@@ -167,35 +170,39 @@ def run(
         analyzer = Analyzer(fs=stream.fs, detector=default_detector(stream.fs, prompt))
         alpha = 1.0 - math.exp(-period / ema_s) if ema_s > 0 else 1.0
         smooth: dict[str, float] | None = None
+        held = dict(zero)
         n_ok = 0
         while not stop.wait(period):
             try:
                 if stream.seconds_since_data > STALE_S:
-                    publish(_bad(smooth or zero))
+                    publish(_bad(held))
                     continue
                 eeg, gyro = stream.windows(window_s)
                 res = analyzer.step(eeg, gyro)
-                if res.ok:
+                if res.ok and res.bp is not None:
                     z = {Z_FIELDS[k]: baseline.z(k, v) for k, v in res.indices.items()}
-                    if not all(math.isfinite(v) for v in z.values()):
-                        raise ValueError(f"non-finite z-scores {z}")
+                    raw_ali = ali_index(res.bp)
+                    if not all(math.isfinite(v) for v in z.values()) or not math.isfinite(raw_ali):
+                        raise ValueError(f"non-finite scores {z} ali={raw_ali}")
                     # EMA; the first ~ema_s seconds use the running mean
                     # instead, so the very first window doesn't dominate.
                     n_ok += 1
                     a = max(alpha, 1.0 / n_ok)
                     smooth = z if smooth is None else {
                         k: smooth[k] + a * (z[k] - smooth[k]) for k in z}
+                    ali_s = raw_ali if n_ok == 1 else held["ali"] + a * (raw_ali - held["ali"])
+                    held = {**smooth, "ali": ali_s}
                     # The window is usable even with an artifact in its newest
                     # second (those segments were left out), so report it:
                     # the HUD shows it and a jaw clench still fires the flare.
                     publish(BrainState(t=time.time(), quality="ok", artifact=res.artifact,
-                                       jaw_clench=res.artifact == "jaw", **smooth))
+                                       jaw_clench=res.artifact == "jaw", **held))
                 else:
-                    publish(_bad(smooth or zero, res.artifact))
+                    publish(_bad(held, res.artifact))
             except Exception:
                 log.exception("bad EEG window, skipped")
                 try:
-                    publish(_bad(smooth or zero))
+                    publish(_bad(held))
                 except Exception:
                     log.exception("publish failed")
     except Exception:  # last resort: never take the service down
