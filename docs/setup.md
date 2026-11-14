@@ -705,13 +705,22 @@ mode + HUD sliders; no Minecraft → `game_loop.py --sim`.
 
 ## 15. Troubleshooting
 
-**`Python was not found` / `nie znaleziono Python` / make `Error 9009`
-(Windows)** → `python` resolves to the Microsoft Store stub. The
-Makefile only calls `poetry`, so update the repo first. To make
-`python` work too: Settings → Apps → Advanced app settings → **App
-execution aliases** → turn off `python.exe` and `python3.exe`, and
-install Python from python.org with "Add python.exe to PATH" (or use
-`py`). Then open a new terminal.
+**`Python was not found` / `nie znaleziono Python` / `...WindowsApps\python.EXE
+... exit status 9009` (Windows)** → `python` on PATH is the Microsoft
+Store stub, and Poetry itself asks `python` which interpreter to use, so
+every `poetry ...` (and every `make` target) fails. Point Poetry at a
+real Python once per project:
+
+```powershell
+py -0p                                   # installed Pythons and their paths
+poetry env use (py -3.13 -c "import sys; print(sys.executable)")   # any 3.10-3.14
+poetry install --with gpype
+```
+
+No `py`? Python isn't installed: get it from python.org (tick "Add
+python.exe to PATH"). To stop the stub for good: Settings → Apps →
+Advanced app settings → **App execution aliases** → turn off
+`python.exe` and `python3.exe`, then open a new terminal.
 
 **RCON: connection refused** (`RconConnectionError … refused the
 connection`) → server not running or not ready (wait for
