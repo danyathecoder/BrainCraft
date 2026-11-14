@@ -5,7 +5,17 @@ Neuroadaptive Minecraft game for Heroes of the Brain 2026. An AI
 in-game performance, and reshapes the game in real time.
 
 - **Rehab mode (first):** visual scanning training inspired by therapy
-  for post-stroke spatial neglect, with EEG-based fatigue pacing.
+  for post-stroke spatial neglect. Each signal has one job:
+  - **warm-up:** the first 60 s on the right side only;
+  - **the brain decides which side:** a sustained rightward alpha
+    lateralization (ALI, relative to the player's own calibration) sends
+    more targets left;
+  - **performance decides how far:** a left-eccentricity staircase, with
+    cues after failures;
+  - **fatigue decides when to rest:** an EEG-driven dawn rest phase.
+
+  Targets are skeletons that live 60 s and shoot back, so ignoring the
+  left has a cost, and the player can die (respawn is immediate).
 - **Fun mode (second):** same engine, the director builds tension arcs.
 
 ## Roles

@@ -48,8 +48,10 @@ MUTED = "#898781"
 GRID = "#e1e0d9"
 REST_FILL = "rgba(137,135,129,0.18)"
 
+ALI_KEY = ("ali", "Alpha lateralization (ALI vs own baseline; < 0 = attention drifting right)")
+
 PANEL_TITLES = {
-    "z": "1. Brain state (z-scores vs. own baseline)",
+    "z": "1. Brain state (z-scores and ALI vs. own baseline)",
     "quality": "2. Signal quality",
     "hits": "3. Hits and misses per side",
     "ecc": "4. Left target eccentricity (adaptive staircase)",
@@ -109,7 +111,7 @@ def _load_state(path: Path | None) -> pd.DataFrame | None:
     if "t" not in df.columns:
         return None
     df["t"] = pd.to_numeric(df["t"], errors="coerce")
-    for key, _ in Z_KEYS:
+    for key, _ in Z_KEYS + [ALI_KEY]:
         df[key] = pd.to_numeric(df[key], errors="coerce") if key in df.columns else np.nan
     df = df.dropna(subset=["t"]).sort_values("t").reset_index(drop=True)
     return df if len(df) else None
@@ -255,11 +257,14 @@ def _fig_z(st: pd.DataFrame | None, t0: float, rests_min) -> go.Figure:
     if st is None or st[[k for k, _ in Z_KEYS]].dropna(how="all").empty:
         return _empty_fig(NO_EEG_TEXT)
     x = (st["t"] - t0) / 60.0
+    keys = list(Z_KEYS)
+    if st[ALI_KEY[0]].notna().any() and st[ALI_KEY[0]].abs().max() > 0:
+        keys.append(ALI_KEY)  # rehab sessions with EEG
     fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06,
-        subplot_titles=[label for _, label in Z_KEYS],
+        rows=len(keys), cols=1, shared_xaxes=True, vertical_spacing=0.06,
+        subplot_titles=[label for _, label in keys],
     )
-    for i, (key, label) in enumerate(Z_KEYS, start=1):
+    for i, (key, label) in enumerate(keys, start=1):
         fig.add_trace(
             go.Scatter(
                 x=x, y=st[key], mode="lines", name=label, line=dict(color=INK_2, width=2),
@@ -268,9 +273,9 @@ def _fig_z(st: pd.DataFrame | None, t0: float, rests_min) -> go.Figure:
             row=i, col=1,
         )
         fig.add_hline(y=0, line=dict(color="#c3c2b7", width=1), row=i, col=1)
-    _shade_rests(fig, rests_min, rows=3)
-    fig.update_xaxes(title_text="session time (min)", row=3, col=1)
-    return _layout(fig, 560)
+    _shade_rests(fig, rests_min, rows=len(keys))
+    fig.update_xaxes(title_text="session time (min)", row=len(keys), col=1)
+    return _layout(fig, 190 * len(keys))
 
 
 def _fig_hits(ev: pd.DataFrame, t0: float, t_end: float, rests_min) -> go.Figure:

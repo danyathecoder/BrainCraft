@@ -665,6 +665,21 @@ and the right `source`.
 Drives the game: reads `/state`, spawns targets over RCON, detects
 hits/misses, runs the director, logs to `sessions/`.
 
+**Rehab mode in one paragraph.**
+- **Warm-up:** the first 60 s, targets on the right only.
+- **Side:** after that, the side is drawn with `p_left`. A sustained
+  negative ALI (rightward attention bias, relative to the player's
+  calibration) raises `p_left` by 0.3, with hysteresis and at least 20 s
+  between switches.
+- **Distance:** the left eccentricity follows a performance staircase
+  (15–45°), with cues after failures.
+- **Rest:** fatigue or low engagement triggers a 45 s dawn rest.
+- **Targets:** skeletons that live 60 s and shoot (difficulty normal),
+  so the player can die. Respawn is immediate, and the loop re-applies
+  the movement lock every 5 s.
+- **Report:** every decision has a reason in the HUD and the report.
+  The ALI curve is in report section 1.
+
 ```bash
 # Real Minecraft (server running, player joined, state service running)
 poetry run python game_loop.py --mode rehab --rcon --name diuna-1
