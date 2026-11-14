@@ -172,7 +172,7 @@ def test_signal_quality_section() -> None:
         rows.append({"t": T0 + s, "quality": q, "artifact": a})
     sq = signal_quality(pd.DataFrame(rows))
     assert sq["usable_share"] == 0.6
-    assert sq["counts"] == {"usable": 60, "held": 20, "blink": 5, "jaw": 5, "motion": 10}
+    assert sq["counts"] == {"usable": 60, "held": 20, "blink": 5, "jaw": 5, "motion": 10, "contact": 0}
     assert sq["longest_bad_s"] == 40
     assert signal_quality(None) is None
 

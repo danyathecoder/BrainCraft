@@ -44,7 +44,7 @@ from eeg.calibrate import (
     quick_baseline,
     run_calibration,
 )
-from eeg.features import Analyzer
+from eeg.features import ANALYZER_VERSION, Analyzer
 from eeg.stream import EEGStream, StreamNotFound
 
 log = logging.getLogger("eeg.pipeline")
@@ -121,6 +121,9 @@ def run(
                 try:
                     baseline = Baseline.load(baseline_path)
                     log.info("baseline loaded from %s", baseline_path)
+                    if baseline.meta.get("analyzer") != ANALYZER_VERSION:
+                        prompt(f"[eeg] WARNING: {baseline_path.name} was recorded with an older "
+                               "EEG analysis; recalibrate for accurate z-scores")
                     break
                 except Exception:
                     log.exception("baseline %s unreadable, recalibrating", baseline_path)
@@ -180,8 +183,11 @@ def run(
                     a = max(alpha, 1.0 / n_ok)
                     smooth = z if smooth is None else {
                         k: smooth[k] + a * (z[k] - smooth[k]) for k in z}
-                    publish(BrainState(t=time.time(), quality="ok", artifact="none",
-                                       jaw_clench=False, **smooth))
+                    # The window is usable even with an artifact in its newest
+                    # second (those segments were left out), so report it:
+                    # the HUD shows it and a jaw clench still fires the flare.
+                    publish(BrainState(t=time.time(), quality="ok", artifact=res.artifact,
+                                       jaw_clench=res.artifact == "jaw", **smooth))
                 else:
                     publish(_bad(smooth or zero, res.artifact))
             except Exception:

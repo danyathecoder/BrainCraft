@@ -111,9 +111,46 @@ def test_artifacts_detected(event, expected):
     assert detector(x[:, EEG], x[:, 11:14]) == expected
 
 
-def test_analyzer_holds_after_jaw():
+def test_analyzer_keeps_window_usable_around_jaw():
+    """Segment-wise: a jaw second is left out, the rest of the window counts."""
     gen = SyntheticEEG(seed=7)
     an = F.Analyzer()
+    hist = gen.generate(4 * FS)
+    assert an.step(hist[:, EEG], hist[:, 11:14]).ok
+    gen.jaw()
+    hist = np.vstack([hist, gen.generate(FS)])[-4 * FS :]
+    res = an.step(hist[:, EEG], hist[:, 11:14])
+    assert res.artifact == "jaw" and res.ok
+    assert res.segment_labels[-1] == "jaw" and res.clean_segments == 3
+    # three bad seconds out of four: not enough clean data
+    for _ in range(2):
+        gen.jaw()
+        hist = np.vstack([hist, gen.generate(FS)])[-4 * FS :]
+        res = an.step(hist[:, EEG], hist[:, 11:14])
+    assert res.clean_segments == 1 and not res.ok
+
+
+def test_analyzer_contact_and_bad_channels():
+    gen = SyntheticEEG(seed=8)
+    an = F.Analyzer()
+    hist = gen.generate(4 * FS)[:, EEG]
+    clipped = hist.copy()
+    clipped[:, F.CH["Cz"]] = 750_000.0  # electrode at the amplifier limit
+    res = an.step(clipped)
+    assert set(res.segment_labels) == {"contact"} and not res.ok
+    noisy = hist.copy()
+    noisy[:, F.CH["C4"]] += 400 * np.sin(np.arange(len(noisy)) * 2 * np.pi * 6 / FS)
+    res = an.step(noisy)
+    assert res.ok and res.channels[F.CH["C4"]] == "noisy"  # C4 feeds no index
+    noisy[:, F.CH["Cz"]] += 400 * np.sin(np.arange(len(noisy)) * 2 * np.pi * 6 / FS)
+    res = an.step(noisy)
+    assert res.ok  # engagement falls back to Fz alone
+    assert F.indices(res.bp, {"Fz"}) is None  # fatigue needs Fz
+
+
+def test_analyzer_legacy_holds_after_jaw():
+    gen = SyntheticEEG(seed=7)
+    an = F.Analyzer(legacy=True)
     hist = gen.generate(4 * FS)
     assert an.step(hist[:, EEG], hist[:, 11:14]).ok
     gen.jaw()

@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from eeg.features import INDEX_NAMES, Analyzer
+from eeg.features import ANALYZER_VERSION, INDEX_NAMES, Analyzer
 
 EMA_SECONDS = 15.0  # smoothing of z-scores
 DEFAULT_BASELINE = Path(__file__).resolve().parent.parent / "sessions" / "baseline.json"
@@ -200,7 +200,7 @@ def run_calibration(
             "skipped_seconds": skipped,
             "source": getattr(stream, "source", "?"),
             "created": time.time(),
-            "index_units": "log10",
+            "index_units": "log10", "analyzer": ANALYZER_VERSION,
         })
     except ValueError as e:
         raise CalibrationError(str(e)) from e
@@ -265,7 +265,7 @@ def quick_baseline(
     try:
         base = compute_baseline(samples, meta={
             "quick": True, "skipped_seconds": skipped, "created": time.time(),
-            "source": getattr(stream, "source", "?"), "index_units": "log10",
+            "source": getattr(stream, "source", "?"), "index_units": "log10", "analyzer": ANALYZER_VERSION,
         })
     except ValueError as e:
         raise CalibrationError(str(e)) from e

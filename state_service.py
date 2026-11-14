@@ -49,7 +49,6 @@ _decisions: deque[dict] = deque(maxlen=MAX_DECISIONS)
 _stop = threading.Event()
 _stream = None  # EEGStream, set by the pipeline (eeg source only)
 RAW_DECIMATE = 2  # 250 Hz -> 125 Hz for the HUD
-FLAT_UV, NOISY_UV = 0.5, 100.0  # per-channel RMS limits shown on the HUD
 
 
 def _set_stream(stream) -> None:
@@ -121,7 +120,7 @@ def get_raw(seconds: float = 5.0) -> dict:
         return {"available": False, "reason": "waiting for the EEG stream"}
     import numpy as np
 
-    from eeg.features import preprocess
+    from eeg.features import channel_status, preprocess
     from eeg.layout import EEG_CHANNELS
 
     seconds = min(max(seconds, 1.0), 8.0)
@@ -129,9 +128,11 @@ def get_raw(seconds: float = 5.0) -> dict:
     n = int(seconds * fs)
     window = stream.window(seconds)
     have = min(stream.total_samples, len(window))
-    x = preprocess(window[-have:], fs) if have >= fs else np.zeros((0, len(EEG_CHANNELS)))
+    raw = window[-have:]
+    x = preprocess(raw, fs) if have >= fs else np.zeros((0, len(EEG_CHANNELS)))
     rms = np.sqrt((x**2).mean(axis=0)) if len(x) else np.zeros(len(EEG_CHANNELS))
-    flags = ["flat" if r < FLAT_UV else "noisy" if r > NOISY_UV else "ok" for r in rms]
+    # saturated (amplifier limit: electrode/reference contact), flat, noisy, ok
+    flags = channel_status(raw, x) if len(x) else ["flat"] * len(EEG_CHANNELS)
     return {
         "available": True,
         "fs": fs / RAW_DECIMATE,

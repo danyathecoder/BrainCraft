@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 Quality = Literal["ok", "bad"]
-Artifact = Literal["none", "blink", "jaw", "motion"]
+Artifact = Literal["none", "blink", "jaw", "motion", "contact"]
 
 
 @dataclass

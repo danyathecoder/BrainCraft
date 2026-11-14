@@ -455,7 +455,8 @@ async function pollRaw() {
     $("rawcard").hidden = false;
     if (!r.available) { rawData = null; $("rawnote").textContent = r.reason || "no raw EEG"; drawRaw(); return; }
     rawData = r;
-    const bad = r.channels.map((c, i) => r.flags[i] !== "ok" ? `${c} ${r.flags[i]} (${r.rms[i]} µV)` : null).filter(Boolean);
+    const bad = r.channels.map((c, i) => r.flags[i] === "saturated" ? `${c} SATURATED (no contact?)`
+      : r.flags[i] !== "ok" ? `${c} ${r.flags[i]} (${r.rms[i]} µV)` : null).filter(Boolean);
     $("rawnote").innerHTML = (r.age_s > 2 ? `<span class="bad">no new samples for ${r.age_s.toFixed(1)} s</span> · ` : "") +
       (bad.length ? `<span class="warnc">check electrodes: ${esc(bad.join(", "))}</span>`
                   : `all channels in range (RMS ${FLAT_TXT}–${NOISY_TXT} µV)`);

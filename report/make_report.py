@@ -68,6 +68,7 @@ QUALITY_CATS = [
     ("blink", "blink", "#7c5cc4"),
     ("jaw", "jaw / muscle", "#d4a017"),
     ("motion", "head motion", "#d03b3b"),
+    ("contact", "bad contact / clipping", "#3b3b3b"),
 ]
 USABLE_GOOD, USABLE_FAIR = 0.7, 0.4
 
@@ -408,7 +409,7 @@ def signal_quality(st: pd.DataFrame | None) -> dict | None:
     art = (st["artifact"].astype(str).str.strip().str.lower()
            if "artifact" in st.columns else pd.Series("none", index=st.index))
     cat = np.where(q == "ok", "usable",
-                   np.where(art.isin(["blink", "jaw", "motion"]), art, "held"))
+                   np.where(art.isin(["blink", "jaw", "motion", "contact"]), art, "held"))
     cat = pd.Series(cat, index=st.index)
     dt = float(np.median(np.diff(st["t"]))) if len(st) > 1 else 1.0
     dt = dt if math.isfinite(dt) and dt > 0 else 1.0
@@ -462,9 +463,12 @@ def _quality_html(sq: dict | None) -> str:
     else:
         verdict = ("Poor: most seconds were unusable, so the brain-driven part of the "
                    "session (rest phases, levels) mostly ran on stale values.")
-    artifacts = {k: c[k] for k in ("motion", "jaw", "blink")}
+    artifacts = {k: c[k] for k in ("contact", "motion", "jaw", "blink")}
     worst = max(artifacts, key=artifacts.get)
     advice = {
+        "contact": "Most unusable seconds were bad electrode contact (signal at the amplifier "
+                   "limit): attach both ear clips (reference, ground) behind the ears, add gel "
+                   "under Fz, Cz, Pz, Oz, and wait a few minutes before calibrating.",
         "motion": "Most artifacts were head motion: keep the head still and move only the mouse; "
                   "make sure the headset sits firmly.",
         "jaw": "Most artifacts were jaw / muscle activity: relax the jaw and face, no chewing or "
@@ -474,6 +478,7 @@ def _quality_html(sq: dict | None) -> str:
     }[worst] if artifacts[worst] else "No artifacts were detected."
     tiles = [
         _tile("Usable EEG", _fmt_pct(share), f'{c["usable"]} of {sq["n"]} seconds'),
+        _tile("Bad contact", f'{c["contact"]} s', "signal at the amplifier limit"),
         _tile("Head motion", f'{c["motion"]} s', "gyroscope above threshold"),
         _tile("Jaw / muscle", f'{c["jaw"]} s', "20-120 Hz power burst"),
         _tile("Blinks", f'{c["blink"]} s', "large frontal deflection"),
