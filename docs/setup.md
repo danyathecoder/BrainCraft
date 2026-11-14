@@ -27,7 +27,10 @@ make setup                 # poetry install + g.Pype group
 make setup ACCEPT_EULA=1   # ... and the Minecraft 26.3 server (accepts https://aka.ms/MinecraftEULA)
 make doctor                # what's installed / running (Java, server, LSL streams, baselines)
 
-make start PLAYER=anna            # demo: bridge -> calibration (first time) -> Minecraft -> service -> HUD -> game
+make start PLAYER=anna            # one computer: bridge -> calibration (first time) -> service -> HUD -> Minecraft -> game
+make start PLAYER=anna OSCAR=1    # same with g.tec OSCAR in the bridge (use a separate PLAYER name, e.g. anna-oscar)
+make headset [OSCAR=1]            # two computers, headset side (see "Two computers" below)
+make start EEG_HOST=<ip> PLAYER=anna   # two computers, server side
 make start PLAYER=anna MODE=fun   # fun mode
 make start PLAYER=anna MC_NAME=<username>   # optional: only this Minecraft account may join
 make start PLAYER=anna SKIP_CAL=1           # no calibration protocol (quick 30 s baseline if none saved)

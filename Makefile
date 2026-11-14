@@ -12,14 +12,16 @@ PLAYER  ?= player
 DURATION ?= 600
 MC_NAME ?=            # optional: only these Minecraft usernames may join, e.g. MC_NAME="Steve Alex"
 EEG_HOST ?=           # two computers: the headset computer's IP, on the server computer
+OSCAR   ?=            # OSCAR=1: the headset bridge runs g.tec OSCAR artifact removal
 SKIP_CAL ?=           # SKIP_CAL=1: no calibration protocol (quick 30 s baseline if none saved)
 ARGS    ?=            # extra flags for `start`, e.g. ARGS="--oscar --no-browser"
 
 START = $(RUN) start --eeg $(strip $(EEG)) --game $(strip $(GAME)) --mode $(strip $(MODE)) \
         --player $(strip $(PLAYER)) --duration $(strip $(DURATION)) \
         $(foreach n,$(MC_NAME),--mc-name $(n)) $(if $(strip $(SKIP_CAL)),--skip-calibration) \
-        $(HOSTARG) $(ARGS)
+        $(HOSTARG) $(OSCARARG) $(ARGS)
 HOSTARG = $(if $(strip $(EEG_HOST)),--eeg-host $(strip $(EEG_HOST)))
+OSCARARG = $(if $(strip $(OSCAR)),--oscar)
 
 .PHONY: help setup server doctor start dev demo-synthetic hud headset bridge check calibrate \
         artifacts train-artifacts replay whitelist report test
@@ -37,7 +39,7 @@ server:          ## set up the Minecraft 26.3 server; ACCEPT_EULA=1 accepts the 
 doctor:          ## what is installed / running
 	$(RUN) doctor $(HOSTARG)
 
-start:           ## full demo: headset bridge, calibration, Minecraft, service, HUD, game
+start:           ## everything on one computer (or with EEG_HOST: the server side of two)
 	$(START)
 
 dev:             ## no hardware: HUD sliders + simulated game
@@ -49,10 +51,10 @@ demo-synthetic:  ## no headset: synthetic EEG + real Minecraft
 
 hud:             ## headset + service + HUD only, no game
 	$(RUN) start --eeg $(strip $(EEG)) --game none --player $(strip $(PLAYER)) \
-	    $(if $(strip $(SKIP_CAL)),--skip-calibration) $(HOSTARG) $(ARGS)
+	    $(if $(strip $(SKIP_CAL)),--skip-calibration) $(HOSTARG) $(OSCARARG) $(ARGS)
 
 headset:         ## two computers: on the headset computer, bridge only + connection info
-	$(RUN) headset $(ARGS)
+	$(RUN) headset $(OSCARARG) $(ARGS)
 
 bridge:          ## only the headset -> LSL bridge (with scope window)
 	$(PY) -m eeg.gpype_bridge --record sessions/raw

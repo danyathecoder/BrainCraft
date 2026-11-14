@@ -65,14 +65,39 @@ sessions/            recordings and logs (git-ignored)
 **Full setup for every service (Minecraft server and client, headset,
 EEG, game loop, HUD, report): [`docs/setup.md`](docs/setup.md).**
 
-Fastest: the launcher starts and stops everything in order
-([setup.md, fast path](docs/setup.md#fast-path-launcher-and-make)):
+Fastest: the launcher starts and stops everything in order, one Ctrl+C
+stops it all ([setup.md, fast path](docs/setup.md#fast-path-launcher-and-make)).
 
 ```bash
-make setup ACCEPT_EULA=1    # deps + g.Pype + Minecraft server (accepts the Minecraft EULA)
-make start PLAYER=anna      # headset, calibration, Minecraft, service, HUD, game
-make dev                    # no hardware: HUD sliders + simulated game
+make setup ACCEPT_EULA=1    # once: deps + g.Pype + Minecraft server (accepts the Minecraft EULA)
 ```
+
+**A. Everything on one computer** (headset paired to it):
+
+```bash
+make start PLAYER=anna              # bridge, calibration, Minecraft server, service, HUD, game
+make start PLAYER=anna MODE=fun     # fun mode
+make start PLAYER=anna OSCAR=1      # with g.tec OSCAR artifact removal (own baseline: PLAYER=anna-oscar)
+```
+
+Join `localhost` in Minecraft 26.3; the HUD opens at <http://localhost:8000>.
+
+**B. Two computers** (headset laptop + server laptop on the same network,
+[setup.md, two computers](docs/setup.md#two-computers)):
+
+```bash
+# headset computer: bridge only, prints its IP and the server command
+make headset                        # OSCAR=1 for OSCAR
+# server computer: Minecraft server, service, HUD, game
+make start EEG_HOST=<headset IP> PLAYER=anna
+```
+
+Minecraft on the headset computer joins the server computer's IP; the
+HUD is at `http://<server IP>:8000` from either.
+
+Common extras: `SKIP_CAL=1` (no calibration protocol), `DURATION=300`,
+`make doctor` (what's installed and running), `make report`.
+No hardware at all: `make dev` (HUD sliders + simulated game).
 
 Dependencies are managed with [Poetry](https://python-poetry.org/) 2.x.
 
