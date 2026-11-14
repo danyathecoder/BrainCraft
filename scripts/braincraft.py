@@ -582,9 +582,11 @@ def cmd_start(args) -> int:
                     raise KeyboardInterrupt
             if game is not None and not game.alive():
                 say("game session finished")
-                events = SESSIONS / f"{name}.csv"
-                if events.exists() and not args.no_report:
-                    subprocess.call([PY, "-m", "report.make_report", str(events), "--open"], cwd=ROOT)
+                report = _report_path(game)
+                if report:
+                    say(f"report: {report.relative_to(ROOT)}")
+                    if not args.no_report:
+                        webbrowser.open(report.resolve().as_uri())
                 game = None
                 say("services keep running (HUD stays live). Ctrl+C stops everything.")
             time.sleep(0.5)
@@ -593,8 +595,21 @@ def cmd_start(args) -> int:
         say("stopping...")
     finally:
         stop_all()
+        time.sleep(0.3)  # let the output threads catch the last lines
+        for c in children:
+            if c.tag == "game" and (report := _report_path(c)):
+                say(f"session report: {report.relative_to(ROOT)}")
         say(f"stopped. Logs: {LOGS.relative_to(ROOT)}/{stamp}-*.log")
     return 0
+
+
+def _report_path(game: Child) -> Path | None:
+    """The report the game loop wrote (it prints 'report: <path>')."""
+    for line in reversed(game.lines):
+        if line.startswith("report: "):
+            path = Path(line[len("report: "):].strip())
+            return path if path.exists() else None
+    return None
 
 
 def stop_server(server: Child) -> None:
@@ -678,7 +693,8 @@ def parse_args(argv=None) -> argparse.Namespace:
                     help="rcon: don't wait for a player to join before starting")
     st.add_argument("--no-browser", action="store_true", help="don't open the HUD")
     st.add_argument("--fake-headset", action="store_true", help=argparse.SUPPRESS)  # launcher tests
-    st.add_argument("--no-report", action="store_true", help="no report when the session ends")
+    st.add_argument("--no-report", action="store_true",
+                    help="don't open the report when the session ends (it is still written)")
     return ap.parse_args(argv)
 
 

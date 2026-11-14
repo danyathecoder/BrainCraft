@@ -721,17 +721,68 @@ in the scope.
 
 ## 13. Session report
 
-After a session, one offline HTML training session report (~5 MB,
-plotly inlined, opens without internet) from the events CSV and, if
-present, the `-state.csv` next to it.
+**Written automatically at the end of every game session**, also when
+it is stopped early with Ctrl+C: `sessions/<time>-<name>-report.html`,
+next to the events and state CSVs. One offline HTML file (~5 MB, plotly
+inlined, opens without internet). The launcher opens it in the browser
+when the session ends on its own (`--no-report` keeps it closed);
+`game_loop.py --open-report` does the same without the launcher, and
+`--no-report` skips writing it.
+
+Contents: summary tiles, brain state (z-scores), **signal quality**
+(section 13a), hits and misses per side, left eccentricity, head
+direction, and the director's decisions with reasons.
+
+By hand (e.g. after a crash, or for an older session):
 
 ```bash
+make report                                                       # latest session
 poetry run python -m report.make_report sessions/<file>.csv --open
 # options: --state FILE (other state CSV), --out FILE (default <file>-report.html)
 ```
 
 **Check:** the report opens in the browser with hits/misses per side
 and the director's decisions.
+
+### 13a. Signal quality
+
+Every second the EEG pipeline labels the brain state:
+
+| Label | Meaning | What the game does |
+|---|---|---|
+| usable (`quality=ok`) | clean 4 s window | z-scores update |
+| blink | large frontal deflection (Fz) | z-scores held |
+| jaw / muscle | 20–120 Hz power burst (jaw, face, talking) | z-scores held; in fun mode a jaw clench is also the flare |
+| head motion | gyroscope above 30 °/s | z-scores held |
+| held | an artifact is still inside the 4 s window, no data, or calibrating | z-scores held |
+
+Held z-scores keep their last good values, so the director never reacts
+to noise. But if most seconds are not usable, the brain-driven decisions
+(rest phases, fun levels) run on stale values.
+
+**Where to see it**
+
+- **Live:** the HUD shows `signal quality` and `artifact` under the
+  gauges, and the raw EEG scope marks flat (< 0.5 µV RMS) or noisy
+  (> 100 µV RMS) channels in amber. The channels that matter most are
+  **Fz, Cz** (engagement, fatigue) and **Pz, Oz, PO7, PO8** (alpha);
+  C3/C4 feed no index.
+- **After the session:** report section "2. Signal quality": usable
+  share, seconds per artifact type, longest unusable stretch, a
+  per-minute chart and advice. Rough guide: **≥ 70 % usable is good**,
+  40–70 % fair, < 40 % poor.
+
+**Improving it**
+
+- Head motion: player rests the head, moves only the mouse; headset
+  strap firm.
+- Jaw / muscle: relaxed jaw and face, no talking or chewing during the
+  session.
+- Noisy or flat channels: push the electrode through the hair, add gel,
+  check the cable isn't pulled; wait a few minutes after fitting for the
+  signal to settle.
+- Calibrate (or take the quick baseline) only once the scope looks
+  clean: a baseline recorded on noise makes every z-score meaningless.
 
 ---
 

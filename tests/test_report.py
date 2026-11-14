@@ -153,3 +153,45 @@ def test_cli(tmp_path: Path) -> None:
     ev = _session(tmp_path)
     out = main([str(ev), "--out", str(tmp_path / "cli.html")])
     assert out.exists()
+
+
+def test_signal_quality_section() -> None:
+    import pandas as pd
+
+    from report.make_report import signal_quality
+
+    rows = []
+    for s in range(100):  # 60 usable, 10 motion, 5 jaw, 5 blink, 20 held
+        q, a = ("ok", "none") if s < 60 else ("bad", "none")
+        if 60 <= s < 70:
+            a = "motion"
+        elif 70 <= s < 75:
+            a = "jaw"
+        elif 75 <= s < 80:
+            a = "blink"
+        rows.append({"t": T0 + s, "quality": q, "artifact": a})
+    sq = signal_quality(pd.DataFrame(rows))
+    assert sq["usable_share"] == 0.6
+    assert sq["counts"] == {"usable": 60, "held": 20, "blink": 5, "jaw": 5, "motion": 10}
+    assert sq["longest_bad_s"] == 40
+    assert signal_quality(None) is None
+
+
+def test_report_shows_signal_quality(tmp_path: Path) -> None:
+    html = make_report(_session(tmp_path)).read_text(encoding="utf-8")
+    assert PANEL_TITLES["quality"] in html and "Usable EEG" in html
+    assert "Good: the director had fresh brain data" in html  # fixture is all "ok"
+
+
+def test_game_loop_writes_report(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, "game_loop.py", "--mode", "rehab", "--sim", "--no-service",
+         "--duration", "30", "--speed", "0", "--name", "rep", "--log-dir", str(tmp_path)],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert out.returncode == 0, out.stderr
+    assert "report: " in out.stdout
+    assert list(tmp_path.glob("*-rep-report.html"))

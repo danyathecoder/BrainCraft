@@ -346,6 +346,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="fake brain only: start a 60 s low-engagement (bored) episode at this second")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--log-dir", type=Path, default=SESSIONS_DIR)
+    ap.add_argument("--no-report", action="store_true", help="don't write the HTML report at the end")
+    ap.add_argument("--open-report", action="store_true", help="open the HTML report at the end")
     args = ap.parse_args(argv)
 
     if args.rcon and args.speed != 1.0:
@@ -387,7 +389,29 @@ def main(argv: list[str] | None = None) -> int:
         logger.close()
         print(f"events: {logger.path}")
         print(f"state:  {logger.state_path}")
+        if not args.no_report:
+            write_report(logger.path, open_it=args.open_report)
     return 0
+
+
+def write_report(events_csv: Path, open_it: bool = False) -> Path | None:
+    """HTML report for the session; also after Ctrl+C. Never raises."""
+    try:
+        from report.make_report import make_report
+
+        out = make_report(Path(events_csv))
+        print(f"report: {out}")
+        if open_it:
+            import webbrowser
+
+            webbrowser.open(out.resolve().as_uri())
+        return out
+    except KeyboardInterrupt:
+        print("report skipped (Ctrl+C); make it later: python -m report.make_report "
+              f"{events_csv}")
+    except Exception as exc:  # a missing report must never hide the logs
+        print(f"report failed: {exc}; make it later: python -m report.make_report {events_csv}")
+    return None
 
 
 if __name__ == "__main__":

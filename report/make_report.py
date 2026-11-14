@@ -9,9 +9,10 @@ Inputs are the logs written by ``log.events.EventLogger``:
 
 Panels:
   1. z-scores (engagement, fatigue, lower alpha) with rest phases shaded
-  2. hits / misses per side: cumulative counts + hit rate per minute
-  3. left eccentricity over time (staircase, from left spawns)
-  4. yaw histogram (scanning bias: how far left the player looked)
+  2. signal quality: usable EEG share, artifacts per minute, advice
+  3. hits / misses per side: cumulative counts + hit rate per minute
+  4. left eccentricity over time (staircase, from left spawns)
+  5. yaw histogram (scanning bias: how far left the player looked)
 plus summary numbers at the top and the director decision log.
 
 The HTML embeds plotly.js inline, so it opens offline (~4 MB).
@@ -49,11 +50,26 @@ REST_FILL = "rgba(137,135,129,0.18)"
 
 PANEL_TITLES = {
     "z": "1. Brain state (z-scores vs. own baseline)",
-    "hits": "2. Hits and misses per side",
-    "ecc": "3. Left target eccentricity (adaptive staircase)",
-    "yaw": "4. Head direction (yaw) histogram - scanning bias",
+    "quality": "2. Signal quality",
+    "hits": "3. Hits and misses per side",
+    "ecc": "4. Left target eccentricity (adaptive staircase)",
+    "yaw": "5. Head direction (yaw) histogram - scanning bias",
     "decisions": "Director decisions",
 }
+
+# Signal-quality categories, one per brain-state second (state CSV):
+#   usable  quality "ok": fresh z-scores
+#   held    quality "bad" without an artifact this second: an artifact is
+#           still inside the 4 s window, or no data / calibrating
+#   blink / jaw / motion  artifact detected this second
+QUALITY_CATS = [
+    ("usable", "usable", "#3d9a5b"),
+    ("held", "held (recent artifact, no data or calibrating)", "#c3c2b7"),
+    ("blink", "blink", "#7c5cc4"),
+    ("jaw", "jaw / muscle", "#d4a017"),
+    ("motion", "head motion", "#d03b3b"),
+]
+USABLE_GOOD, USABLE_FAIR = 0.7, 0.4
 
 NO_EEG_TEXT = "No EEG data recorded for this session"
 
@@ -384,6 +400,96 @@ def _fig_yaw(ev: pd.DataFrame) -> go.Figure:
 # --- HTML ------------------------------------------------------------------
 
 
+def signal_quality(st: pd.DataFrame | None) -> dict | None:
+    """Per-second quality categories and summary numbers (None without EEG)."""
+    if st is None or "quality" not in st.columns or st.empty:
+        return None
+    q = st["quality"].astype(str).str.strip().str.lower()
+    art = (st["artifact"].astype(str).str.strip().str.lower()
+           if "artifact" in st.columns else pd.Series("none", index=st.index))
+    cat = np.where(q == "ok", "usable",
+                   np.where(art.isin(["blink", "jaw", "motion"]), art, "held"))
+    cat = pd.Series(cat, index=st.index)
+    dt = float(np.median(np.diff(st["t"]))) if len(st) > 1 else 1.0
+    dt = dt if math.isfinite(dt) and dt > 0 else 1.0
+    longest = run = 0
+    for c in cat:
+        run = 0 if c == "usable" else run + 1
+        longest = max(longest, run)
+    counts = cat.value_counts().to_dict()
+    n = len(cat)
+    return {
+        "cat": cat,
+        "n": n,
+        "seconds": n * dt,
+        "usable_share": counts.get("usable", 0) / n,
+        "counts": {k: int(counts.get(k, 0)) for k, _, _ in QUALITY_CATS},
+        "longest_bad_s": longest * dt,
+        "dt": dt,
+    }
+
+
+def _fig_quality(st: pd.DataFrame | None, sq: dict | None, t0: float, rests_min) -> go.Figure:
+    if sq is None:
+        return _empty_fig(NO_EEG_TEXT)
+    minute = ((st["t"] - t0) // 60).astype(int)
+    table = pd.crosstab(minute, sq["cat"])
+    fig = go.Figure()
+    for key, label, color in QUALITY_CATS:
+        if key not in table.columns:
+            continue
+        share = table[key] / table.sum(axis=1) * 100
+        fig.add_trace(go.Bar(
+            x=table.index + 0.5, y=share, name=label, marker_color=color,
+            hovertemplate="%{y:.0f}%<extra>" + label + "</extra>",
+        ))
+    fig.update_layout(barmode="stack", bargap=0.15)
+    fig.update_yaxes(title_text="% of seconds", range=[0, 100])
+    fig.update_xaxes(title_text="session time (min)")
+    _shade_rests(fig, rests_min)
+    return _layout(fig, 320)
+
+
+def _quality_html(sq: dict | None) -> str:
+    if sq is None:
+        return f'<p class="muted">{NO_EEG_TEXT}.</p>'
+    share, c = sq["usable_share"], sq["counts"]
+    if share >= USABLE_GOOD:
+        verdict = "Good: the director had fresh brain data most of the time."
+    elif share >= USABLE_FAIR:
+        verdict = ("Fair: brain-driven decisions were often based on held values. "
+                   "Interpret the z-scores with care.")
+    else:
+        verdict = ("Poor: most seconds were unusable, so the brain-driven part of the "
+                   "session (rest phases, levels) mostly ran on stale values.")
+    artifacts = {k: c[k] for k in ("motion", "jaw", "blink")}
+    worst = max(artifacts, key=artifacts.get)
+    advice = {
+        "motion": "Most artifacts were head motion: keep the head still and move only the mouse; "
+                  "make sure the headset sits firmly.",
+        "jaw": "Most artifacts were jaw / muscle activity: relax the jaw and face, no chewing or "
+               "talking; check the electrodes near the temples (C3/C4).",
+        "blink": "Most artifacts were blinks: normal in small numbers; many blinks can mean "
+                 "dry eyes or tiredness.",
+    }[worst] if artifacts[worst] else "No artifacts were detected."
+    tiles = [
+        _tile("Usable EEG", _fmt_pct(share), f'{c["usable"]} of {sq["n"]} seconds'),
+        _tile("Head motion", f'{c["motion"]} s', "gyroscope above threshold"),
+        _tile("Jaw / muscle", f'{c["jaw"]} s', "20-120 Hz power burst"),
+        _tile("Blinks", f'{c["blink"]} s', "large frontal deflection"),
+        _tile("Held seconds", f'{c["held"]} s',
+              "artifact still in the 4 s window, no data, or calibrating"),
+        _tile("Longest unusable stretch", _fmt_dur(sq["longest_bad_s"])),
+    ]
+    return (
+        '<div class="tiles">' + "".join(tiles) + "</div>"
+        f'<p><b>{verdict}</b> {advice}</p>'
+        '<p class="muted">While the signal is not usable the z-scores are held at their last '
+        "good values, so the director does not react to noise. Live check during a session: "
+        "the HUD's raw EEG scope (amber channels need attention). Shaded = rest phase.</p>"
+    )
+
+
 def _fmt_pct(v: float | None) -> str:
     return "&mdash;" if v is None else f"{v * 100:.0f}%"
 
@@ -423,6 +529,7 @@ def _summary_html(s: dict) -> str:
         _tile("Max left eccentricity",
               "&mdash;" if s["max_left_ecc"] is None else f'{s["max_left_ecc"]:.0f}&deg;'),
         _tile("Rest phases", str(s["rest_phases"]), f'{s["decisions"]} director decisions'),
+        _tile("Usable EEG", _fmt_pct(s.get("usable_share")), "see 2. Signal quality"),
         _tile("Time looking left",
               _fmt_pct(s["yaw_left_share"]),
               "" if s["yaw_left_p95"] is None else f'reached {s["yaw_left_p95"]:.0f}&deg; left (95th pct)'),
@@ -495,9 +602,12 @@ def make_report(
     rests = _rest_intervals(ev, t_end)
     rests_min = [((a - t0) / 60.0, (b - t0) / 60.0) for a, b in rests]
     summary = summarize(ev, t0, t_end)
+    sq = signal_quality(st)
+    summary["usable_share"] = sq["usable_share"] if sq else None
 
     figs = [
         ("z", _fig_z(st, t0, rests_min)),
+        ("quality", _fig_quality(st, sq, t0, rests_min)),
         ("hits", _fig_hits(ev, t0, t_end, rests_min)),
         ("ecc", _fig_ecc(ev, t0, rests_min)),
         ("yaw", _fig_yaw(ev)),
@@ -507,6 +617,8 @@ def make_report(
     for i, (key, fig) in enumerate(figs):
         div = fig.to_html(full_html=False, include_plotlyjs=(i == 0), config=config)
         extra = '<p class="muted">Shaded = rest phase.</p>' if key in ("z", "ecc") else ""
+        if key == "quality":
+            extra = _quality_html(sq)
         if key == "hits":
             extra = (
                 '<p class="legend-sides muted"><span><i class="sw" style="background:var(--left)"></i>left</span>'
