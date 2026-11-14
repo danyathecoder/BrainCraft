@@ -1,0 +1,29 @@
+[project]
+name = "braincraft"
+version = "0.1.0"
+description = "Neuroadaptive Minecraft game driven by EEG (Heroes of the Brain 2026)"
+readme = "README.md"
+requires-python = ">=3.10,<3.15"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pylsl",
+    "fastapi",
+    "uvicorn",
+    "mcrcon",
+    "pandas",
+    "plotly",
+]
+
+[tool.poetry]
+package-mode = false
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "httpx",
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

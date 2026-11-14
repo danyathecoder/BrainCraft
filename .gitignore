@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# Session data (recordings, event logs, reports)
+sessions/*
+!sessions/.gitkeep
+
+# Local Minecraft server files
+server/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
