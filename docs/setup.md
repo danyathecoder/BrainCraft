@@ -688,7 +688,7 @@ poetry run python game_loop.py --mode rehab --rcon --name diuna-1
 # Simulation, no Minecraft, no state service, 2 min in ~7 s, with a rest phase
 poetry run python game_loop.py --mode rehab --sim --no-service --duration 120 --speed 20 --fake-fatigue-at 20
 
-# Fun mode in simulation, calm player -> escalation
+# Fun mode in simulation: harder every 90 s, engagement drop at 10 s -> extra boost
 poetry run python game_loop.py --mode fun --sim --no-service --speed 20 --fake-calm-at 10
 ```
 

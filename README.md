@@ -17,9 +17,10 @@ in-game performance, and reshapes the game in real time.
   Targets are skeletons that live 60 s and shoot back, so ignoring the
   left has a cost, and the player can die (respawn is immediate).
 - **Fun mode (second):** same engine, the director builds tension arcs.
-  Enemies get tougher over time and with boredom (skeleton → stray →
-  bogged → pillager → blaze, all shooting), and the player gets an
-  enchanted bow.
+  Difficulty rises every 90 s (pace, count, enemy type: skeleton → stray
+  → bogged → pillager → blaze, all shooting), and up to two levels more
+  when the player's engagement falls below its own recent peak. The
+  player gets an enchanted bow.
 
 How both modes spawn targets, which metrics drive them and every rule
 with its numbers: **[docs/modes.md](docs/modes.md)**.

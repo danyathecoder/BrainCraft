@@ -86,7 +86,7 @@ the player's calibration baseline and smooths them (EMA ~15 s).
 
 | Signal | What it is | Used for |
 |---|---|---|
-| `engagement_z` | β/(α+θ) at Fz, Cz (Pope 1995), z vs baseline | rehab: low-engagement rest, challenge band; fun: escalate / de-escalate |
+| `engagement_z` | β/(α+θ) at Fz, Cz (Pope 1995), z vs baseline | rehab: low-engagement rest, challenge band; fun: **falling vs its own 2-min peak → harder** (boost) |
 | `fatigue_z` | (θ+α)/β at Fz, z vs baseline | rehab: rest phase; fun: overload breather |
 | `alpha_low_z` | 8–10 Hz power at Pz, Oz | logged and shown, no rule uses it yet |
 | `ali` | (α PO7 − α PO8)/(α PO7 + α PO8) **minus the player's calibration mean**; < 0 = attention drifting right | rehab: side bias |
@@ -162,54 +162,76 @@ then cleared.
 
 ## Fun mode
 
-Same engine, the goal is **flow**: keep `engagement_z` in **[−0.5, 1.0]**.
+Same engine, the goal is a game that keeps getting harder, and harder
+still when the player's engagement **falls**.
+
+**Difficulty level = time baseline + engagement boost** (0–4):
 
 ```mermaid
 flowchart LR
-  L0["L0 calm watch"] -->|"calm 15 s"| L1["L1 faster, 2 at once,<br/>cave sounds"]
-  L1 -->|"calm 15 s"| L2["L2 walking skeletons,<br/>sheep distractors"]
-  L2 -->|"calm 15 s"| L3["L3 three at once,<br/>darkness"]
-  L3 -->|"calm 15 s"| L4["L4 maximum pace"]
-  L4 -->|"hype 15 s"| L3
-  L3 -->|"hype 15 s"| L2
-  L2 -->|"hype 15 s"| L1
-  L1 -->|"hype 15 s"| L0
+  T["Time<br/>+1 level every 90 s"] --> L["Level 0-4<br/>pace, count, angles,<br/>walking enemies, sheep,<br/>darkness, enemy type"]
+  E["Engagement falling<br/>vs own 2-min peak"] -->|"boost +1 (max +2)"| L
+  R["Engagement recovered<br/>for 30 s"] -->|"boost -1"| L
+  O["Overload<br/>fatigue or 3 misses"] -->|"breather, boost -1"| L
 ```
 
-- **Calm** (bored): `engagement_z < −0.5` for 15 good seconds → **level up**, plus a cave sound, plus darkness on levels 3–4 (30 s).
-- **Hype:** `engagement_z > 1.0` for 15 good seconds → **level down**. Darkness is cleared when the new level has none.
+- **Time baseline:** **+1 level every 90 s** (`level_every_s`): level 0 at
+  0–1.5 min, 1 from 1.5 min, 2 from 3 min, 3 from 4.5 min, 4 from 6 min.
+  The game always progresses, even for a player whose engagement stays
+  high.
+  - **Why not an absolute threshold:** in real sessions `engagement_z`
+    stayed high all the time (baseline mismatch, smoothing). The old rule
+    ("bored below −0.5 → harder, above +1.0 → easier") never escalated, and
+    players only ever saw skeletons at the slowest pace.
+- **Engagement boost** (+1 per step, at most **+2** above the time
+  schedule, `max_boost`):
+  - **Falling:** `engagement_z` at least **0.5 below its own peak of the
+    last 2 min** (`drop_z`, `peak_window_s`) for **10 good seconds**
+    (`drop_hold_s`). The old absolute rule still counts too: below −0.5
+    for 15 s.
+  - **After a step:** at least **30 s** before the next one
+    (`boost_cooldown_s`), and the peak restarts from the current value, so
+    a further step needs a fresh drop.
+  - **Recovered:** engagement back to within 0.2 of where it was before it
+    fell (at least above −0.5) for **30 good seconds** → boost −1.
+    Difficulty never drops below the time schedule.
+  - **At max level** a further drop adds cave sounds and darkness.
+  - **High engagement no longer lowers the level** (the old "hype" rule
+    is gone).
+- Bad-quality seconds count for nothing, as everywhere.
 
-| Level | Spawn every | Max at once | Eccentricity up to | Walking skeletons | Sheep | Darkness |
-|---|---|---|---|---|---|---|
-| 0 calm watch | 3.0 s | 1 | 25° | — | — | — |
-| 1 | 2.5 s | 2 | 35° | — | — | — |
-| 2 | 2.5 s | 2 | 45° | 30 % | 20 % | — |
-| 3 | 2.0 s | 3 | 45° | 35 % | 20 % | yes |
-| 4 maximum | 1.5 s | 3 | 45° | 40 % | 25 % | yes |
+| Level | Reached at (no boost) | Spawn every | Max at once | Eccentricity up to | Walking enemies | Sheep | Darkness | Enemy unlocked |
+|---|---|---|---|---|---|---|---|---|
+| 0 calm watch | start | 3.0 s | 1 | 25° | — | — | — | Skeleton |
+| 1 | 1.5 min | 2.5 s | 2 | 35° | — | — | — | Stray |
+| 2 | 3 min | 2.5 s | 2 | 45° | 30 % | 20 % | — | Bogged |
+| 3 | 4.5 min | 2.0 s | 3 | 45° | 35 % | 20 % | yes | Pillager |
+| 4 maximum | 6 min | 1.5 s | 3 | 45° | 40 % | 25 % | yes | Blaze |
 
+- **Each level-up** plays a cave sound, and on levels 3–4 adds darkness for
+  30 s. A level-down clears the darkness.
 - **Side:** left/right 50/50.
 - **Lifetimes:** still target **6 s** (`TARGET_LIFETIME_S`), walking mob 14 s, sheep 8 s. Tougher enemies get their own, longer lifetime (table below).
 
 **Enemies get tougher** (`mc/enemies.py`). All of them shoot and can kill
 the player:
 
-| Tier | Enemy | Threat | HP | Gear | Lifetime | Unlocks after |
+| Tier | Enemy | Threat | HP | Gear | Lifetime | Appears from |
 |---|---|---|---|---|---|---|
-| 0 | Skeleton | arrows | 1 | bow + helmet | 6 s | start |
-| 1 | Stray | arrows of Slowness | 6 | bow + helmet | 8 s | 1.5 min |
-| 2 | Bogged | arrows of Poison | 10 | bow + helmet | 9 s | 3 min |
-| 3 | Pillager | crossbow bolts | 16 | crossbow | 10 s | 4.5 min |
-| 4 | Blaze | fireballs, sets you on fire | 20 | — (fire immune) | 12 s | 6 min |
+| 0 | Skeleton | arrows | 1 | bow + helmet | 6 s | level 0 |
+| 1 | Stray | arrows of Slowness | 6 | bow + helmet | 8 s | level 1 |
+| 2 | Bogged | arrows of Poison | 10 | bow + helmet | 9 s | level 2 |
+| 3 | Pillager | crossbow bolts | 16 | crossbow | 10 s | level 3 |
+| 4 | Blaze | fireballs, sets you on fire | 20 | — (fire immune) | 12 s | level 4 |
 
-- **The toughest allowed tier is `min(level, time unlock)`.** Every game
-  starts with skeletons. A bored player (level up) meets tougher enemies,
-  but never before their unlock time. An engaged player at level 0 keeps
-  skeletons.
+- **The toughest enemy is the current level.** Every game starts with
+  skeletons, and a new type comes every 1.5 min. Falling engagement brings
+  the next types **early** (up to two levels ahead).
 - **Each spawn is the newest allowed tier half the time,** otherwise a
   lower one, for variety. This applies to still targets, walking mobs and
   waves.
 - **When a tier is first reached,** an `enemy_unlock` decision fires: the
-  title "New enemy!" plus its threat. Dropping a level lowers the cap
+  title "New enemy!" plus its threat. Dropping a level lowers the tier
   without re-announcing.
 - **Undead** (skeleton, stray, bogged) wear an unbreakable helmet so they
   don't burn at dawn. Health is set as the `max_health` attribute plus
@@ -225,8 +247,10 @@ metrics stay comparable.
 
 **Overload → breather → wave:**
 - **Trigger:** `fatigue_z > 1.5` for 5 good seconds, or **3 misses in a row**. At most once every 45 s after the previous breather.
-- **The 20 s breather:** level −1, no spawns, darkness cleared, a calm sound.
-- **Then a wave:** **5 walking skeletons**, alternating left and right.
+- **The 20 s breather:** boost −1 (never below the time schedule), no
+  spawns, darkness cleared, a calm sound.
+- **Then a wave:** **5 walking enemies** of the current tiers, alternating
+  left and right.
 
 **Jaw clench = flare:** a detected jaw clench makes all targets glow for
 5 s, with a 30 s cooldown. It's the player's one deliberate brain or
@@ -248,11 +272,12 @@ to the CSV.
 | `cues_off` | rehab | 5 cued targets shown | — |
 | `spawn_interval` | rehab | challenge rule, or after a rest | faster / slower pace |
 | `rest_start` / `rest_end` | rehab | fatigue / engagement rule | dawn + titles / midnight |
-| `escalate` / `deescalate` | fun | calm / hype for 15 s | level change |
-| `cave_sound`, `darkness`, `clear_darkness` | fun | with escalation | sound, Darkness effect |
+| `escalate` / `deescalate` | fun | time step (every 90 s), boost change, breather | level change |
+| `boost_up` / `boost_down` | fun | engagement falling vs its 2-min peak / recovered for 30 s | +1 / −1 level above the time schedule |
+| `cave_sound`, `darkness`, `clear_darkness` | fun | with a level-up (darkness on levels 3–4) / level-down | sound, Darkness effect |
 | `breather_start` / `breather_end`, `wave` | fun | overload | pause, then 5 walking skeletons |
 | `flare` | fun | jaw clench | all targets glow 5 s |
-| `enemy_unlock` | fun | `min(level, time unlock)` reaches a new tier | "New enemy!" title + threat |
+| `enemy_unlock` | fun | the level reaches a new enemy tier | "New enemy!" title + threat |
 | `mode` | both | HUD button | mode switch title |
 
 ---
@@ -291,7 +316,10 @@ The report is a training summary, not a diagnostic assessment.
 | target angles / distance | `mc/config.py` `ECCENTRICITIES`, `TARGET_DISTANCE` (keep ≤ 45° at FOV 70) |
 | fun difficulty curve | `director/fun.py` `LEVELS`, `FunParams` |
 | fun target lifetime | `mc/config.py` `TARGET_LIFETIME_S`, `FunParams.mob_lifetime_s` / `sheep_lifetime_s` |
-| when tougher enemies unlock | `FunParams.tier_unlock_s` (0, 90, 180, 270, 360 s), `newest_tier_share` |
+| how fast fun gets harder over time | `FunParams.level_every_s` (90 s) |
+| how strongly falling engagement adds difficulty | `drop_z` (0.5), `drop_hold_s` (10 s), `peak_window_s` (120 s), `max_boost` (2), `boost_cooldown_s` (30 s) |
+| when the boost eases off | `recover_z` (0.2), `recover_hold_s` (30 s) |
+| enemy variety per spawn | `FunParams.newest_tier_share` (0.5) |
 | enemy health / lifetime / roster | `mc/enemies.py` `ROSTER` |
 | fun bow enchantments | `game/effects.py` `FUN_BOW_ENCHANTMENTS` |
 | XP per kill / sheep penalty | `mc/enemies.py` `xp`, `MOB_XP_BONUS`, `SHEEP_XP_PENALTY` |
