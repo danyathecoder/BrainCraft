@@ -40,7 +40,9 @@ SERVER_DIR = ROOT / "server"
 WINDOWS = os.name == "nt"
 PY = sys.executable
 BRIDGE_STREAM = "BrainCraft-Unicorn"
-NOISE = re.compile(r"\s(INFO|WARN)\|\s")  # liblsl's own log lines
+# Lines kept in the log files but not printed: liblsl's own log, and the
+# Minecraft server noting every RCON connection (the launcher polls).
+NOISE = re.compile(r"\s(INFO|WARN)\|\s|Thread RCON Client|RCON Listener")
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -399,7 +401,16 @@ def cmd_start(args) -> int:
             subprocess.call([PY, "-m", "mc.world"], cwd=ROOT)
             if args.wait_player:
                 say("join the server now: Minecraft 26.3 -> Multiplayer -> Direct Connection -> localhost")
-                wait_until("a player to join", lambda: bool(players_online()), 600, server, every=2)
+                last_hint = [time.monotonic()]
+
+                def joined() -> bool:
+                    if time.monotonic() - last_hint[0] > 30:
+                        last_hint[0] = time.monotonic()
+                        say("still waiting: join localhost in Minecraft 26.3 "
+                            "(or restart with ARGS=--no-wait-player)")
+                    return bool(players_online())
+
+                wait_until("a player to join", joined, 600, server, every=2)
                 players = players_online()
                 if players:
                     subprocess.call([PY, "-m", "mc.world", "--player", players[0]], cwd=ROOT)
