@@ -34,6 +34,13 @@ FOUND_TOLERANCE_DEG = 10.0
 CUE_REPEAT_S = 2.0  # repeat the cue sound once if the target is not found by then
 
 
+def _kind_value(kind: str, enemy: str, default_target: str | None = None) -> str:
+    """Event value: kind as before for skeletons ("target"/"mob"), kind:enemy otherwise."""
+    if enemy == "skeleton":
+        return default_target if (kind == "target" and default_target is not None) else kind
+    return f"{kind}:{enemy}"
+
+
 def normalize_yaw(yaw: float) -> float:
     """Angle in degrees mapped to [-180, 180)."""
     return (yaw + 180.0) % 360.0 - 180.0
@@ -64,6 +71,7 @@ class Target:
     spawned_at: float
     cued: bool = False
     kind: str = "target"  # "target" | "mob" | "sheep"
+    enemy: str = "skeleton"  # mc.enemies key
     lifetime_s: float = config.TARGET_LIFETIME_S
     pos: tuple[float, float, float] = (0.0, 0.0, 0.0)
     bearing: float = 180.0
@@ -115,7 +123,8 @@ class TrialRunner:
     # --- spawning -------------------------------------------------------
 
     def spawn(self, side: str, ecc_deg: float, cued: bool = False, *, now: float | None = None,
-              kind: str = "target", lifetime_s: float | None = None, owner: str = "") -> Target:
+              kind: str = "target", lifetime_s: float | None = None, owner: str = "",
+              enemy: str = "skeleton") -> Target:
         now = self.clock() if now is None else now
         if kind == "sheep":
             self._n_sheep += 1
@@ -130,12 +139,13 @@ class TrialRunner:
         t = Target(tid, side, float(ecc_deg), now, cued=cued, kind=kind,
                    lifetime_s=self.lifetime_s if lifetime_s is None else lifetime_s,
                    pos=(x, y, z), bearing=bearing_yaw(side, ecc_deg, facing), owner=owner,
-                   last_seen=now)
+                   last_seen=now, enemy=enemy)
         if kind == "target":
-            reply = self.rcon.summon_target(tid, x, y, z, side, glowing=cued)
+            reply = (self.rcon.summon_target(tid, x, y, z, side, glowing=cued, enemy=enemy)
+                     if enemy != "skeleton" else self.rcon.summon_target(tid, x, y, z, side, glowing=cued))
             effects.check_reply("summon target", reply or "")
         elif kind == "mob":
-            effects.send(self.rcon, effects.summon_mob_cmd(tid, x, y, z, side))
+            effects.send(self.rcon, effects.summon_mob_cmd(tid, x, y, z, side, enemy=enemy))
         elif kind == "sheep":
             effects.send(self.rcon, effects.summon_sheep_cmd(tid, x, y, z, side))
         else:
@@ -144,7 +154,7 @@ class TrialRunner:
             effects.send(self.rcon, effects.cue_sound_cmd(x, y, z))
         self.active[tid] = t
         self.stats["spawns"] += kind != "sheep"
-        value = "cued" if cued else ("" if kind == "target" else kind)
+        value = "cued" if cued else _kind_value(kind, enemy, default_target="")
         self._event("spawn", now, t, value=value)
         return t
 
@@ -170,7 +180,8 @@ class TrialRunner:
                     results.append(TrialResult(t, "false_tag", rt))
                 else:
                     self.stats[f"hits_{t.side}"] += 1
-                    self._event("hit", now, t, rt_ms=rt, value="cued" if t.cued else t.kind)
+                    self._event("hit", now, t, rt_ms=rt,
+                                value="cued" if t.cued else _kind_value(t.kind, t.enemy))
                     results.append(TrialResult(t, "hit", rt))
                 continue
             t.last_seen = now
@@ -181,7 +192,7 @@ class TrialRunner:
                     results.append(TrialResult(t, "expired"))
                 else:
                     self.stats[f"misses_{t.side}"] += 1
-                    self._event("miss", now, t, value="cued" if t.cued else t.kind)
+                    self._event("miss", now, t, value="cued" if t.cued else _kind_value(t.kind, t.enemy))
                     results.append(TrialResult(t, "miss"))
                 continue
             if t.cued and not t.cue_repeated and t.found_at is None and age >= CUE_REPEAT_S:

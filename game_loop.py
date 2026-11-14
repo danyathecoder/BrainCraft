@@ -304,7 +304,7 @@ def run_session(*, mode: str, rcon, logger, clock, duration_s: float, sim: bool 
                         apply(d, now)
                 for spec in director.due_spawns(now, runner.n_active()):
                     runner.spawn(spec.side, spec.ecc_deg, spec.cued, now=now, kind=spec.kind,
-                                 lifetime_s=spec.lifetime_s, owner=current)
+                                 lifetime_s=spec.lifetime_s, owner=current, enemy=spec.enemy)
                 if tick and service is not None:
                     service.post_status(game_status(director, runner, now))
                 rcon_failures = 0

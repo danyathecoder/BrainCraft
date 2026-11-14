@@ -9,6 +9,13 @@ Goal: keep engagement_z in [-0.5, 1.0].
   overloaded (fatigue_z > 1.5 for 5 s, or 3 misses in a row)
     -> 20 s breather (no spawns, darkness cleared), then a 5-mob wave
   jaw clench -> "flare": all targets glow for 5 s, 30 s cooldown
+
+Enemies (mc.enemies): skeleton -> stray -> bogged -> pillager -> blaze.
+The toughest allowed tier is min(level, time unlock): tier n unlocks
+`tier_unlock_s[n]` s into the session, so every game starts with
+skeletons and a bored player (level up) meets tougher enemies, but not
+before their time. Each spawn is the newest allowed tier half the time,
+otherwise a lower one. Tougher enemies have more health and live longer.
 """
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ from dataclasses import dataclass
 from contracts import BrainState
 from director.base import Decision, HoldTimer, SpawnSpec
 from mc import config
+from mc import enemies as E
 
 # level -> (spawn interval s, max targets at once, max eccentricity index,
 #           mob share, sheep share, darkness)
@@ -57,6 +65,8 @@ class FunParams:
     target_lifetime_s: float = config.TARGET_LIFETIME_S
     mob_lifetime_s: float = 14.0
     sheep_lifetime_s: float = 8.0
+    tier_unlock_s: tuple = (0.0, 90.0, 180.0, 270.0, 360.0)  # per mc.enemies.ROSTER
+    newest_tier_share: float = 0.5
 
 
 class FunDirector:
@@ -78,6 +88,9 @@ class FunDirector:
         self.pending_wave = 0
         self._next_spawn: float | None = None
         self._pending: list[Decision] = []
+        self._t0: float | None = None
+        self.enemy_tier = 0
+        self._announced_tier = 0
 
     # --- parameters -----------------------------------------------------
 
@@ -105,12 +118,44 @@ class FunDirector:
             "p_left": 0.5,
             "left_ecc_deg": self.max_ecc_deg,
             "level": self.level,
+            "enemy_tier": self.enemy_tier,
+            "enemy": E.ROSTER[self.enemy_tier].key,
         }
+
+    # --- enemies --------------------------------------------------------
+
+    def unlocked_tier(self, now: float) -> int:
+        if self._t0 is None:
+            return 0
+        el = now - self._t0
+        n = sum(1 for t in self.p.tier_unlock_s if el >= t) - 1
+        return max(0, min(n, len(E.ROSTER) - 1))
+
+    def _sync_tier(self, now: float) -> list[Decision]:
+        unlocked = self.unlocked_tier(now)
+        self.enemy_tier = min(self.level, unlocked)
+        if self.enemy_tier <= self._announced_tier:
+            return []
+        self._announced_tier = self.enemy_tier
+        e = E.ROSTER[self.enemy_tier]
+        minutes = (now - self._t0) / 60 if self._t0 is not None else 0
+        return [Decision("enemy_unlock", {"enemy": e.key, "label": e.label, "threat": e.threat,
+                                          "tier": self.enemy_tier},
+                         reason=(f"level {self.level} and {minutes:.1f} min in → new enemy: "
+                                 f"{e.label} ({e.threat}, {e.health:g} HP)"))]
+
+    def _pick_enemy(self) -> E.Enemy:
+        top = self.enemy_tier
+        if top == 0 or self.rng.random() < self.p.newest_tier_share:
+            return E.ROSTER[top]
+        return E.ROSTER[self.rng.randint(0, top - 1)]
 
     # --- interface ------------------------------------------------------
 
     def start(self, now: float) -> list[Decision]:
         self._next_spawn = now + self.p.lead_in_s
+        if self._t0 is None:  # a mode switch back keeps the session clock
+            self._t0 = now
         return [Decision("fun_start", {"level": self.level},
                          reason=f"fun mode: keep engagement_z in [{self.p.band_low:g}, "
                                 f"{self.p.band_high:g}], level {self.level} ({LEVEL_TEXT[self.level]})")]
@@ -131,6 +176,7 @@ class FunDirector:
 
     def on_state(self, state: BrainState, now: float) -> list[Decision]:
         out = self._drain()
+        out += self._sync_tier(now)
         if state.jaw_clench and (self.last_flare is None
                                  or now - self.last_flare >= self.p.flare_cooldown_s):
             self.last_flare = now
@@ -214,11 +260,13 @@ class FunDirector:
             self._next_spawn = now + self.p.lead_in_s
         if self.resting:
             return []
+        if self._t0 is None:
+            self._t0 = now
+        self._pending.extend(self._sync_tier(now))
         if self.pending_wave:
             n, self.pending_wave = self.pending_wave, 0
             self._next_spawn = now + self.spawn_interval_s
-            return [SpawnSpec("L" if i % 2 == 0 else "R", self._pick_ecc(), kind="mob",
-                              lifetime_s=self.p.mob_lifetime_s) for i in range(n)]
+            return [self._mob_spec("L" if i % 2 == 0 else "R") for i in range(n)]
         if n_active >= self.max_active or now < self._next_spawn:
             return []
         self._next_spawn = now + self.spawn_interval_s
@@ -228,8 +276,16 @@ class FunDirector:
         if r < sheep_share:
             return [SpawnSpec(side, self._pick_ecc(), kind="sheep", lifetime_s=self.p.sheep_lifetime_s)]
         if r < sheep_share + mob_share:
-            return [SpawnSpec(side, self._pick_ecc(), kind="mob", lifetime_s=self.p.mob_lifetime_s)]
-        return [SpawnSpec(side, self._pick_ecc(), kind="target", lifetime_s=self.p.target_lifetime_s)]
+            return [self._mob_spec(side)]
+        e = self._pick_enemy()
+        # Tougher enemies take several arrows: they get their own, longer lifetime.
+        life = max(self.p.target_lifetime_s, e.lifetime_s)
+        return [SpawnSpec(side, self._pick_ecc(), kind="target", lifetime_s=life, enemy=e.key)]
+
+    def _mob_spec(self, side: str) -> SpawnSpec:
+        e = self._pick_enemy()
+        life = max(self.p.mob_lifetime_s, e.lifetime_s + 4.0)
+        return SpawnSpec(side, self._pick_ecc(), kind="mob", lifetime_s=life, enemy=e.key)
 
     def _pick_ecc(self) -> float:
         top = min(LEVELS[self.level][2], len(self.ecc) - 1)

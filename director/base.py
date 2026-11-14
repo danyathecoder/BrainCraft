@@ -54,8 +54,9 @@ class SpawnSpec:
     side: str  # "L" | "R"
     ecc_deg: float
     cued: bool = False
-    kind: str = "target"  # "target" (still skeleton), "mob" (walking skeleton), "sheep"
+    kind: str = "target"  # "target" (still, on its mark), "mob" (walks in), "sheep"
     lifetime_s: float | None = None  # None -> TrialRunner default
+    enemy: str = "skeleton"  # mc.enemies key: skeleton, stray, bogged, pillager, blaze
 
 
 class Director(Protocol):

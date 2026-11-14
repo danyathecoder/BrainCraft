@@ -230,14 +230,21 @@ class Rcon:
         side: str,
         glowing: bool = False,
         entity: str = config.TARGET_ENTITY,
+        enemy: str | None = None,
     ) -> str:
-        """Skeleton that holds its mark and shoots the player. One arrow kills it.
+        """Mob that holds its mark and shoots the player (default: 1-HP skeleton).
 
         NoAI would also freeze the bow attack. Movement speed 0 keeps the
         eccentricity fixed; follow range covers the spawn distance.
         Entity NBT on /summon is still valid in 1.20.5+ / 26.x (only item
-        data moved to components).
+        data moved to components). `enemy` (mc.enemies key, fun mode)
+        picks a tougher ranged mob with its own health and gear.
         """
+        if enemy and enemy != "skeleton":
+            from mc import enemies
+
+            return self.cmd(enemies.summon_cmd(enemies.get(enemy), x, y, z,
+                                               ["target", target_id, side], hold=True, glowing=glowing))
         nbt = (
             "{PersistenceRequired:1b,IsBaby:0b,CanPickUpLoot:0b,Health:1f,"
             f"{config.TARGET_GEAR_NBT},"
