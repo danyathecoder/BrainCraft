@@ -17,6 +17,12 @@ in-game performance, and reshapes the game in real time.
 | **P3 Minecraft** | `mc/`, `game/`: server, RCON, map, targets, hit/miss/RT, cues |
 | **P4 HUD, report, pitch** | `hud/`, `report/`, slides, demo script |
 
+## Architecture
+
+See [`docs/architecture.md`](docs/architecture.md) for diagrams of how
+the applications communicate (headset → LSL → state service → game
+loop → RCON → Minecraft) and of the director's game loop.
+
 ## Contracts
 
 Defined in [`contracts.py`](contracts.py). Don't change them without
