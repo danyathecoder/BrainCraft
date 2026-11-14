@@ -327,7 +327,18 @@ def test_default_java_uses_java_home(tmp_path, monkeypatch):
     monkeypatch.setenv("JAVA_HOME", str(tmp_path))
     assert setup.default_java() == str(exe)
     monkeypatch.delenv("JAVA_HOME")
+    monkeypatch.setattr(setup, "BREW_JAVA", [])
     assert setup.default_java() == "java"
+
+
+def test_default_java_finds_keg_only_homebrew(tmp_path, monkeypatch):
+    exe = tmp_path / "opt" / "openjdk@25" / "bin" / "java"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("")
+    monkeypatch.delenv("JAVA_HOME", raising=False)
+    monkeypatch.setattr(setup, "BREW_JAVA", [str(tmp_path / "missing" / "java"), str(exe)])
+    monkeypatch.setattr(setup.sys, "platform", "darwin")
+    assert setup.default_java() == str(exe)
 
 
 def test_bad_memory_rejected(tmp_path):

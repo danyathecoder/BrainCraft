@@ -205,12 +205,25 @@ def ensure_jar(
 # --- java ------------------------------------------------------------------
 
 
+# Homebrew's openjdk formulas are keg-only (not on PATH), and macOS's
+# /usr/bin/java is a stub that fails without a system-wide JDK.
+BREW_JAVA = [
+    f"{prefix}/opt/{formula}/bin/java"
+    for formula in ("openjdk@25", "openjdk")
+    for prefix in ("/opt/homebrew", "/usr/local")
+]
+
+
 def default_java() -> str:
     home = os.environ.get("JAVA_HOME")
     if home:
         exe = Path(home) / "bin" / ("java.exe" if os.name == "nt" else "java")
         if exe.is_file():
             return str(exe)
+    if sys.platform == "darwin":
+        for exe in BREW_JAVA:
+            if Path(exe).is_file():
+                return exe
     return "java"
 
 
