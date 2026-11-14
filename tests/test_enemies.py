@@ -78,12 +78,44 @@ def test_engaged_session_still_meets_every_enemy():
     assert seen == ["skeleton", "stray", "bogged", "pillager", "blaze"]
 
 
-def test_bow_commands_per_mode():
-    fun = effects.bow_cmds("fun", "@p")
-    assert fun[0] == "clear @p minecraft:bow"
-    assert fun[1].startswith('give @p minecraft:bow[minecraft:enchantments={"minecraft:power":3')
-    assert '"minecraft:infinity":1' in fun[1] and "levels" not in fun[1]
-    assert effects.bow_cmds("rehab", "@p") == ["clear @p minecraft:bow", "give @p minecraft:bow 1"]
+def test_bow_tiers_and_commands():
+    from game import bow
+
+    assert [bow.tier_for(x) for x in (0, 49, 50, 149, 150, 299, 300, 499, 500, 9999)] == \
+        [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
+    assert all('"minecraft:infinity":1' in bow.bow_item(i) for i in range(len(bow.TIERS)))
+    assert '"minecraft:power":5' in bow.bow_item(4) and "flame" not in bow.bow_item(1)
+    fun = effects.bow_cmds("fun", "@p", tier=2)
+    assert fun[0] == "clear @p minecraft:bow" and '"minecraft:flame":1' in fun[1]
+    assert "levels" not in fun[1]
+    assert effects.bow_cmds("rehab", "@p", tier=4) == ["clear @p minecraft:bow", "give @p minecraft:bow 1"]
+
+
+def test_xp_upgrades_the_fun_bow():
+    import game_loop
+    from game.trials import Target
+
+    class R:
+        def __init__(self):
+            self.sent = []
+
+        def cmd(self, c):
+            self.sent.append(c)
+            return ""
+
+    fx = effects.Effects(R())
+    fx.session_start("fun")
+    assert game_loop.bow_upgrade_decision(fx) is None
+    for _ in range(2):
+        fx.hit(Target("t", "L", 35, 0.0, enemy="pillager"))  # 2 x 25 XP
+    up = game_loop.bow_upgrade_decision(fx)
+    assert up.action == "bow_upgrade" and up.params["tier"] == 1 and "50 XP" in up.reason
+    fx.apply(up)
+    assert fx.bow_tier == 1 and any("Bow upgraded!" in c for c in fx.rcon.sent)
+    assert game_loop.bow_upgrade_decision(fx) is None  # no repeat
+    fx.false_tag()
+    fx.false_tag()
+    assert fx.xp == 30 and fx.bow_tier == 1  # XP can drop, the bow does not
 
 
 def test_effects_apply_enemy_unlock_and_mode_bow():

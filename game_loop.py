@@ -194,6 +194,18 @@ class ServiceClient:
 # --- the loop ------------------------------------------------------------------
 
 
+def bow_upgrade_decision(effects) -> Decision | None:
+    """A bow_upgrade decision if the session XP reached a new bow tier."""
+    from game import bow
+
+    tier = bow.tier_for(effects.xp)
+    if tier <= effects.bow_tier:
+        return None
+    t = bow.TIERS[tier]
+    return Decision("bow_upgrade", {"tier": tier, "label": t.label, "xp": effects.xp},
+                    reason=f"{effects.xp} XP ≥ {t.xp} → bow upgraded: {t.label}")
+
+
 def run_session(*, mode: str, rcon, logger, clock, duration_s: float, sim: bool = False,
                 brain: FakeBrain | None = None, service: ServiceClient | None = None,
                 seed: int | None = 0, hz: float = LOOP_HZ, out=print) -> dict:
@@ -294,6 +306,10 @@ def run_session(*, mode: str, rcon, logger, clock, duration_s: float, sim: bool 
                 for r in runner.poll(now):
                     if r.outcome == "hit":
                         effects.hit(r.target)
+                        if current == "fun":  # the XP score upgrades the fun bow
+                            up = bow_upgrade_decision(effects)
+                            if up is not None:
+                                apply(up, now)
                     elif r.outcome == "miss":
                         effects.miss(r.target)
                     elif r.outcome == "false_tag":

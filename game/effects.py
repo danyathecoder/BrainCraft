@@ -68,26 +68,18 @@ BACK_SOUND = "minecraft:block.bell.use"
 CAVE_SOUND = "minecraft:ambient.cave"
 FALSE_TAG_SOUND = "minecraft:entity.villager.no"
 WAVE_SOUND = "minecraft:event.raid.horn"
+LEVEL_UP_SOUND = "minecraft:entity.player.levelup"
 
 _MODE_SUBTITLE = {
     "rehab": "Rehab: scan left and right",
     "fun": "Fun: hold your ground",
 }
-# Fun mode's bow: glinting, stronger, sets mobs alight, never runs out.
-FUN_BOW_ENCHANTMENTS = {"minecraft:power": 3, "minecraft:flame": 1, "minecraft:punch": 1,
-                        "minecraft:infinity": 1, "minecraft:unbreaking": 3}
+def bow_cmds(mode: str, player: str = P, tier: int = 0) -> list[str]:
+    """Replace the player's bow: the XP tier's enchanted bow in fun mode
+    (game/bow.py), a plain one in rehab (comparable metrics)."""
+    from game import bow
 
-
-def bow_cmds(mode: str, player: str = P) -> list[str]:
-    """Replace the player's bow: enchanted in fun mode, plain in rehab (comparable metrics).
-
-    26.3 component syntax; the pre-1.21.5 {levels:{...}} form is rejected.
-    """
-    if mode == "fun":
-        ench = ",".join(f'"{k}":{v}' for k, v in FUN_BOW_ENCHANTMENTS.items())
-        item = f"minecraft:bow[minecraft:enchantments={{{ench}}}]"
-    else:
-        item = "minecraft:bow"
+    item = bow.bow_item(tier) if mode == "fun" else "minecraft:bow"
     return [f"clear {player} minecraft:bow", f"give {player} {item} 1"]
 
 
@@ -168,6 +160,8 @@ class Effects:
     def __init__(self, rcon, player: str = P):
         self.rcon = rcon
         self.player = player
+        self.xp = 0  # session score, mirrors the player's XP bar
+        self.bow_tier = 0  # fun-mode bow tier (game/bow.py), only ever goes up
 
     def cmd(self, command: str) -> str:
         return send(self.rcon, command)
@@ -187,13 +181,26 @@ class Effects:
         self.cmd(f"give {p} minecraft:arrow 64")
         self.cmd(f"xp set {p} 0 levels")  # the XP bar is this session's score
         self.cmd(f"xp set {p} 0 points")
+        self.xp, self.bow_tier = 0, 0
         self.give_bow(mode)
         self.cmd(subtitle_cmd(_MODE_SUBTITLE.get(mode, mode), player=p))
         self.cmd(title_cmd("BrainCraft", "gold", player=p))
 
     def give_bow(self, mode: str) -> None:
-        for c in bow_cmds(mode, self.player):
+        if mode == "fun":  # catch up on XP earned while in rehab
+            from game import bow
+
+            self.bow_tier = max(self.bow_tier, bow.tier_for(self.xp))
+        for c in bow_cmds(mode, self.player, self.bow_tier):
             self.cmd(c)
+
+    def bow_upgrade(self, tier: int, label: str) -> None:
+        self.bow_tier = tier
+        for c in bow_cmds("fun", self.player, tier):
+            self.cmd(c)
+        self.cmd(sound_at_player_cmd(LEVEL_UP_SOUND, 1, 1, player=self.player))
+        self.cmd(subtitle_cmd(label, "gold", player=self.player))
+        self.cmd(title_cmd("Bow upgraded!", "gold", player=self.player))
 
     def enemy_unlock(self, label: str, threat: str) -> None:
         p = self.player
@@ -251,6 +258,7 @@ class Effects:
         from mc import enemies
 
         xp = enemies.kill_xp(getattr(target, "enemy", None), getattr(target, "kind", "target"))
+        self.xp += xp
         self.cmd(sound_at_player_cmd(HIT_SOUND, 1, 1.2, player=self.player))
         self.cmd(f"xp add {self.player} {xp} points")
         self.cmd(actionbar_cmd(f"+{xp} XP", "green", player=self.player))
@@ -263,6 +271,7 @@ class Effects:
     def false_tag(self, target=None) -> None:
         from mc import enemies
 
+        self.xp = max(0, self.xp - enemies.SHEEP_XP_PENALTY)
         self.cmd(sound_at_player_cmd(FALSE_TAG_SOUND, 1, 1, player=self.player))
         self.cmd(f"xp add {self.player} -{enemies.SHEEP_XP_PENALTY} points")
         self.cmd(actionbar_cmd(f"-{enemies.SHEEP_XP_PENALTY} XP  sheep are friends!", "red",
@@ -320,6 +329,8 @@ class Effects:
             self.wave(prm.get("n", 5))
         elif a == "mode":
             self.mode_switch(prm.get("mode", "rehab"))
+        elif a == "bow_upgrade":
+            self.bow_upgrade(prm.get("tier", 0), prm.get("label", ""))
         elif a == "enemy_unlock":
             self.enemy_unlock(prm.get("label", "New enemy"), prm.get("threat", ""))
         self.echo(decision)

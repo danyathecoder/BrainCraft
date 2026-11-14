@@ -239,11 +239,23 @@ the player:
 - **Logging:** spawn, hit and miss events log the enemy: `target:stray`,
   `mob:blaze`. Plain skeletons are logged as before.
 
-**The player's bow in fun mode** is enchanted (glint): **Power III, Flame,
-Punch, Infinity, Unbreaking III**. Tougher enemies take fewer arrows,
-burn, and get knocked back, and the arrows never run out. It is given at
-fun start and on a switch to fun. **Rehab keeps a plain bow**, so its
-metrics stay comparable.
+**The player's bow in fun mode upgrades with the XP score**
+(`game/bow.py`). The arrows never run out (Infinity), and every bow glints:
+
+| XP | Bow |
+|---|---|
+| 0 | Power I, Infinity, Unbreaking III |
+| 50 | Power II, Punch |
+| 150 | + Flame (arrows set enemies on fire) |
+| 300 | Power III, Punch II |
+| 500 | Power V |
+
+- **Each upgrade:** a `bow_upgrade` decision ("170 XP ≥ 150 → bow
+  upgraded: Flame…"), the title "Bow upgraded!", a level-up sound, and the
+  new bow in hand.
+- **The bow never downgrades,** even when a sheep costs XP. XP earned in
+  rehab counts when switching to fun.
+- **Rehab keeps a plain bow,** so its metrics stay comparable.
 
 **Overload → breather → wave:**
 - **Trigger:** `fatigue_z > 1.5` for 5 good seconds, or **3 misses in a row**. At most once every 45 s after the previous breather.
@@ -278,6 +290,7 @@ to the CSV.
 | `breather_start` / `breather_end`, `wave` | fun | overload | pause, then 5 walking skeletons |
 | `flare` | fun | jaw clench | all targets glow 5 s |
 | `enemy_unlock` | fun | the level reaches a new enemy tier | "New enemy!" title + threat |
+| `bow_upgrade` | fun | session XP reaches the next bow tier | better bow in hand, "Bow upgraded!" title |
 | `mode` | both | HUD button | mode switch title |
 
 ---
@@ -321,7 +334,7 @@ The report is a training summary, not a diagnostic assessment.
 | when the boost eases off | `recover_z` (0.2), `recover_hold_s` (30 s) |
 | enemy variety per spawn | `FunParams.newest_tier_share` (0.5) |
 | enemy health / lifetime / roster | `mc/enemies.py` `ROSTER` |
-| fun bow enchantments | `game/effects.py` `FUN_BOW_ENCHANTMENTS` |
+| fun bow tiers (XP thresholds, enchantments) | `game/bow.py` `TIERS` |
 | XP per kill / sheep penalty | `mc/enemies.py` `xp`, `MOB_XP_BONUS`, `SHEEP_XP_PENALTY` |
 
 Test any change without hardware first:

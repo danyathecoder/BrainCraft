@@ -20,7 +20,8 @@ in-game performance, and reshapes the game in real time.
   Difficulty rises every 90 s (pace, count, enemy type: skeleton → stray
   → bogged → pillager → blaze, all shooting), and up to two levels more
   when the player's engagement falls below its own recent peak. The
-  player gets an enchanted bow.
+  player's enchanted bow upgrades with the XP score (Power I → V, Punch,
+  Flame).
 
 How both modes spawn targets, which metrics drive them and every rule
 with its numbers: **[docs/modes.md](docs/modes.md)**.
