@@ -164,6 +164,7 @@ def test_helpers_parse_replies(server):
     replies = {
         "list": "There are 2 of a max of 20 players online: Alice, Bob",
         "data get entity @p Rotation": "Alice has the following entity data: [-90.5f, 3.0f]",
+        "data get entity @p Pos": "Alice has the following entity data: [0.5d, -60.0d, -1.25d]",
         "execute if entity @e[tag=t1]": "Test passed. Count: 1",
         "execute if entity @e[tag=t2]": "Test failed",
     }
@@ -172,6 +173,7 @@ def test_helpers_parse_replies(server):
         assert r.players_online() == ["Alice", "Bob"]
         assert r.player_online("bob") and r.player_online("@p") and not r.player_online("Carol")
         assert r.yaw() == -90.5
+        assert r.pos() == (0.5, -60.0, -1.25)
         assert r.exists("t1") and not r.exists("t2")
         r.title('say "hi"', "@a")
         r.summon_target("t9", 1, -60, -20, "L", glowing=True)
@@ -352,3 +354,40 @@ def test_live_yaw(mc):
     if not mc.players_online():
         pytest.skip("no player online")
     assert mc.yaw() is not None
+
+
+def test_lock_keeps_the_field_of_view():
+    """Movement speed scales the client FOV by (speed/0.1 + 1)/2: speed 0
+    halved the view and pushed 35/45 deg targets off screen."""
+    cmds = world.lock_movement_cmds("Steve")
+    speed = [c for c in cmds if "movement_speed" in c]
+    assert speed == [f"attribute Steve minecraft:movement_speed base set {world.PLAYER_WALK_SPEED}"]
+    assert world.PLAYER_WALK_SPEED == 0.1
+    assert "attribute Steve minecraft:jump_strength base set 0" in cmds
+
+
+def test_leash_brings_a_walking_player_back_without_turning_them():
+    home = (config.STAND_X + 0.5, config.GROUND_Y, config.STAND_Z + 0.5)
+    assert not world.off_spot(None)
+    assert not world.off_spot(home)
+    assert not world.off_spot((home[0] + 0.2, home[1], home[2]))
+    assert world.off_spot((home[0] + 0.5, home[1], home[2] - 0.5))
+    assert world.leash_cmd("Steve") == f"tp Steve {home[0]} {home[1]} {home[2]}"  # no rotation: view stays
+
+    class Rec:
+        def __init__(self, pos):
+            self.sent, self._pos = [], pos
+
+        def cmd(self, c):
+            self.sent.append(c)
+            return "ok"
+
+        def pos(self, player):
+            return self._pos
+
+    walked = Rec((home[0] + 2.0, home[1], home[2]))
+    assert effects.Effects(walked, "Steve").leash()
+    assert walked.sent == [world.leash_cmd("Steve")]
+    stayed = Rec(home)
+    assert not effects.Effects(stayed, "Steve").leash()
+    assert stayed.sent == []

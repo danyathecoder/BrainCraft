@@ -10,6 +10,7 @@ loop place the player).
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 
 from mc import config
@@ -111,13 +112,41 @@ def player_anchor_cmd(player: str) -> str:
     return f"tp {player} {config.STAND_X + 0.5} {config.GROUND_Y} {config.STAND_Z + 0.5} 180 0"
 
 
+# Vanilla player walking speed. Movement speed also scales the client's
+# field of view, by (speed / 0.1 + 1) / 2 (the reason Slowness narrows
+# the view). Speed 0 halved the FOV, so on a 16:9 screen only about
+# +-29 deg was visible and 35/45 deg targets spawned off screen. The speed
+# stays at the default; the leash below keeps the player on the spot.
+PLAYER_WALK_SPEED = 0.1
+LEASH_BLOCKS = 0.3  # farther than this from the standing spot -> back
+
+
 def lock_movement_cmds(player: str) -> list[str]:
-    """Looking around stays. Walking, jumping, and arrow knockback do not."""
+    """Jumping and arrow knockback off, view untouched.
+
+    Also resets a zero movement speed left in the player data by older
+    versions, which would still narrow the view. Walking is undone by
+    `leash_cmd` (the game loop checks the position 5 times a second).
+    """
     return [
-        f"attribute {player} minecraft:movement_speed base set 0",
+        f"attribute {player} minecraft:movement_speed base set {PLAYER_WALK_SPEED}",
         f"attribute {player} minecraft:jump_strength base set 0",
         f"attribute {player} minecraft:knockback_resistance base set 1",
     ]
+
+
+def leash_cmd(player: str) -> str:
+    """Back to the standing spot. No rotation given, so the view stays."""
+    return f"tp {player} {config.STAND_X + 0.5} {config.GROUND_Y} {config.STAND_Z + 0.5}"
+
+
+def off_spot(pos: tuple[float, float, float] | None) -> bool:
+    """True if a player position has drifted off the standing spot."""
+    if pos is None:
+        return False
+    x, y, z = pos
+    dx, dz = x - (config.STAND_X + 0.5), z - (config.STAND_Z + 0.5)
+    return math.hypot(dx, dz) > LEASH_BLOCKS or abs(y - config.GROUND_Y) > 1.0
 
 
 def setup(rcon: Rcon, player: str = config.PLAYER) -> None:
@@ -137,8 +166,8 @@ def setup(rcon: Rcon, player: str = config.PLAYER) -> None:
 def place_player(rcon: Rcon, player: str = config.PLAYER) -> bool:
     """Put the player on the grass facing north, ready to shoot.
 
-    Looking around stays free. Walking, jumping, and knockback are off,
-    so the spawn angles stay exact. Returns False (and does nothing) if
+    Looking around stays free. Jumping and knockback are off and the game
+    loop leashes the player to this spot, so the spawn angles stay exact. Returns False (and does nothing) if
     no matching player is online.
     """
     if not rcon.player_online(player):

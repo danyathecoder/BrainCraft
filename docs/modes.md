@@ -38,20 +38,21 @@ flowchart LR
 3. logs the state and the player's yaw;
 4. re-applies the movement lock every 5 s (`KEEP_PLAYER_S`), because a death resets it.
 
-At every 5 Hz step it polls the active targets and asks the director
-what to spawn (`due_spawns`).
+At every 5 Hz step it pulls the player back to the standing spot if they
+walked off (`Effects.leash`), polls the active targets and asks the
+director what to spawn (`due_spawns`).
 
 **The player** stands on the grass at `STAND_X, STAND_Z`, facing north,
 in adventure mode with a bow and 192 arrows. There's no Saturation
 effect, because it healed the player too fast to ever die:
-- walking, jumping and knockback are off; only the view turns;
+- jumping and knockback are off, and walking is undone: 5 times a second the loop teleports the player back to the spot, keeping their view. Movement speed itself stays at the default 0.1, because Minecraft scales the field of view with it: speed 0 halved the view (about ±29° visible) and put 35° and 45° targets off screen;
 - difficulty is **normal**, so skeletons shoot and the player **can die**;
 - `immediate_respawn` and `keep_inventory` are on, and the spawn point is the standing spot.
 
 **Where targets appear** (`game/geometry.py`):
 - on an arc **24 blocks** from the player (`TARGET_DISTANCE`);
 - at an **eccentricity** of 15, 25, 35 or 45° (`ECCENTRICITIES`) to the left or right of **the direction the player is looking at spawn time**;
-- all within the view at FOV 70 on a 16:9 screen (±51°).
+- all within the view at FOV 70 on a 16:9 screen (±51°). Set **FOV Effects to 0%** in the client: drawing the bow zooms in by 15% (about ±45°), so 45° targets would sit on the screen edge while aiming.
 
 **Target kinds:**
 

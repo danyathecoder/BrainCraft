@@ -310,6 +310,7 @@ def run_session(*, mode: str, rcon, logger, clock, duration_s: float, sim: bool 
                     yaw = rcon.yaw()
                     if yaw is not None:
                         logger.event("yaw", t=f"{now:.3f}", value=f"{yaw:.1f}")
+                effects.leash()  # walking is possible (speed 0 would halve the FOV)
                 for d in decisions:
                     apply(d, now)
                 for r in runner.poll(now):

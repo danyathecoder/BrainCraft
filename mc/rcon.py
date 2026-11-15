@@ -286,6 +286,12 @@ class Rcon:
         match = re.search(r"\[\s*(-?[\d.]+(?:[eE]-?\d+)?)f", reply)
         return float(match.group(1)) if match else None
 
+    def pos(self, player: str = config.PLAYER) -> tuple[float, float, float] | None:
+        """Player's feet position, from '... entity data: [0.5d, -60.0d, 0.5d]'."""
+        reply = self.cmd(f"data get entity {player} Pos")
+        nums = re.findall(r"(-?[\d.]+(?:[eE]-?\d+)?)d", reply.partition(":")[2])
+        return (float(nums[0]), float(nums[1]), float(nums[2])) if len(nums) >= 3 else None
+
     def players_online(self) -> list[str]:
         """Names of online players, from 'There are N of a max of M players online: a, b'."""
         reply = self.cmd("list")

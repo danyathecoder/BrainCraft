@@ -103,5 +103,5 @@ flowchart LR
   - ALI (vs the player's calibration) rising ≥ 0.02 in one second → +1 heart (Regeneration II), at most every 5 s.
   - `engagement_z` 0.5 below its own 2-min peak for 20 s → the next enemy type early (otherwise one every 5 min).
 - **Game events (rehab):** every hit moves the left-target chance +0.05, every miss −0.05 (after a 60 s right-only warm-up, starting at 10%).
-- **Player:** the movement lock is re-applied every 5 s, because a death and respawn resets them (skeletons shoot back; difficulty normal).
+- **Player:** the movement lock is re-applied every 5 s, because a death and respawn resets them (skeletons shoot back; difficulty normal). Walking is undone by a 5 Hz position leash instead of movement speed 0, which would halve the client's field of view.
 - Every decision is mirrored in-game (`title @p actionbar …`) and in the HUD log, so judges see why the game changed.

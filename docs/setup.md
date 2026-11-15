@@ -372,6 +372,7 @@ Fabric client mod is future work).
 | Setting | Value | Why |
 |---|---|---|
 | FOV | **70** ("Normal") | target eccentricities assume it (`mc/config.py: CLIENT_FOV_DEG`) |
+| Accessibility Settings → FOV Effects | **0%** | drawing the bow zooms in by 15%, which puts 45° targets on the edge of the screen |
 | Video Settings → Render Distance | 8 | matches the server |
 | Pause on Lost Focus | **OFF** (toggle with **F3+P**) | game keeps running when the HUD window has focus |
 | Video Settings → Fullscreen | ON on the demo screen (F11) | |
@@ -381,8 +382,17 @@ Adventure mode, bow and arrows are set by `mc.world`; don't change the
 game mode by hand.
 
 **Check:** you stand on the grass in a flat night world, facing north,
-with a bow. WASD and jump do nothing; the mouse still turns you.
-F3 shows `Facing: north`.
+with a bow. Jump does nothing; if you walk with WASD, the game loop pulls
+you back to the spot within a fraction of a second, without turning your
+view. F3 shows `Facing: north`.
+
+**Targets off screen?** The view must not be zoomed in. Older versions
+locked walking with movement speed 0, and Minecraft narrows the field of
+view with the movement speed (like Slowness): half the FOV, only about ±29°
+visible. The current lock leaves the speed at 0.1 and also resets a 0
+left in the player data. If the view still looks zoomed, run
+`/attribute <name> minecraft:movement_speed base set 0.1` or restart the
+session, and set FOV Effects to 0%.
 
 **Common errors:** `Outdated client!` / `Outdated server!` → versions
 differ; pick the 26.3 installation. `Failed to log in: Invalid session`
@@ -680,6 +690,8 @@ hits/misses, runs the director, logs to `sessions/`.
 - **Targets:** they live 60 s and shoot (difficulty normal), so the
   player can die. Respawn is immediate, and the loop re-applies the
   movement lock every 5 s.
+- **Standing spot:** the loop checks the player's position 5 times a
+  second and teleports them back (view unchanged) if they walked off.
 - **Report:** every decision has a reason in the HUD and the report.
   The ALI curve is in report section 1.
 
@@ -890,8 +902,8 @@ Arrive early; do it in this order.
        `RCON running on`.
 3. [ ] **World:** `poetry run python -m mc.world`.
 4. [ ] **Client:** launch 26.3 → Direct Connection `localhost`. FOV 70,
-       render distance 8, Pause on Lost Focus OFF (F3+P), fullscreen.
-       Run `python -m mc.world` again → player on the grass with a bow, unable to walk.
+       FOV Effects 0%, render distance 8, Pause on Lost Focus OFF (F3+P), fullscreen.
+       Run `python -m mc.world` again → player on the grass with a bow, unable to jump.
 5. [ ] **Headset:** on and fitted, then in its own terminal
        `poetry run python -m eeg.gpype_bridge --record sessions/raw`
        (fallback: Unicorn LSL streaming). Scope shows clean traces.

@@ -13,7 +13,7 @@ import logging
 import re
 
 from mc import config
-from mc.world import clear_tower_cmd, lock_movement_cmds, player_anchor_cmd
+from mc.world import clear_tower_cmd, leash_cmd, lock_movement_cmds, off_spot, player_anchor_cmd
 
 log = logging.getLogger("braincraft.effects")
 
@@ -253,6 +253,14 @@ class Effects:
         almost instantly, so nobody could die."""
         for c in lock_movement_cmds(self.player):
             self.cmd(c)
+
+    def leash(self) -> bool:
+        """Walked off the standing spot? Back to it, view unchanged. True if moved."""
+        pos_fn = getattr(self.rcon, "pos", None)
+        if pos_fn is None or not off_spot(pos_fn(self.player)):
+            return False
+        self.cmd(leash_cmd(self.player))
+        return True
 
     def session_end(self) -> None:
         self.clear_entities()

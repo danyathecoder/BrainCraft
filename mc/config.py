@@ -56,6 +56,9 @@ TARGET_HOLD_ATTRIBUTES_NBT = (
 # screen the horizontal view is about ±51°. Every spawn angle stays at or
 # under 45°, a few degrees inside that edge, so the whole mob is on screen
 # in the direction the player is looking, without a further turn of the head.
+# Two client-side zooms shrink this: a player movement speed below 0.1
+# (mc/world.py keeps it at 0.1) and drawing the bow (-15%, about +-45 deg);
+# set Accessibility -> FOV Effects to 0% to turn both off.
 CLIENT_FOV_DEG = 70
 ECCENTRICITIES = (15, 25, 35, 45)  # degrees from straight ahead
 
