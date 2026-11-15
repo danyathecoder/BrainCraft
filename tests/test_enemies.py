@@ -40,10 +40,10 @@ def test_enemy_tier_follows_level_time_and_boost():
     assert d.enemy_tier == 1 and "enemy_unlock" in [x.action for x in out]
     unlock = next(x for x in out if x.action == "enemy_unlock")
     assert "Strays" in unlock.reason and "slow you" in unlock.reason
-    d.boost, d._boost_ref = 2, [1.0, 1.0]  # falling engagement: two tiers early
+    d.boost, d.drop.refs = 2, [1.0, 1.0]  # falling engagement: two tiers early
     out = d.on_state(BrainState(t=96, engagement_z=1.0), 96)
     assert d.enemy_tier == 3 and out[-1].params["enemy"] == "pillager"
-    d.boost, d._boost_ref = 0, []
+    d.boost, d.drop.refs = 0, []
     d.on_state(BrainState(t=97, engagement_z=1.0), 97)
     assert d.enemy_tier == 1  # back down, no re-announce later
     assert not any(x.action == "enemy_unlock" for x in d.on_state(BrainState(t=200), 200))

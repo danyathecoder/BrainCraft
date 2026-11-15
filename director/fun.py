@@ -28,11 +28,10 @@ Pure logic, time passed in.
 from __future__ import annotations
 
 import random
-from collections import deque
 from dataclasses import dataclass
 
 from contracts import BrainState
-from director.base import Decision, HoldTimer, SpawnSpec
+from director.base import Decision, EngagementDrop, HoldTimer, SpawnSpec
 from mc import config
 from mc import enemies as E
 
@@ -94,13 +93,10 @@ class FunDirector:
         self.base_level = 0
         self.boost = 0
         self.level = 0
-        self.drop_timer = HoldTimer(self.p.drop_hold_s)
-        self.calm_timer = HoldTimer(self.p.calm_hold_s)
-        self.recover_timer = HoldTimer(self.p.recover_hold_s)
+        self.drop = EngagementDrop(self.p.peak_window_s, self.p.drop_z, self.p.drop_hold_s,
+                                   self.p.band_low, self.p.calm_hold_s, self.p.recover_z,
+                                   self.p.recover_hold_s, self.p.boost_cooldown_s)
         self.fatigue_timer = HoldTimer(self.p.fatigue_hold_s)
-        self._eng: deque[tuple[float, float]] = deque()  # (t, engagement_z), good seconds
-        self._boost_ref: list[float] = []  # engagement before each boost step
-        self._last_boost: float | None = None
         self.misses_in_row = 0
         self.breather_until: float | None = None
         self.last_breather_end: float | None = None
@@ -186,54 +182,26 @@ class FunDirector:
 
     def _engagement(self, state: BrainState, now: float, ok: bool) -> list[Decision]:
         """Boost difficulty when engagement falls; ease it when it recovers."""
-        z = state.engagement_z
-        if ok:
-            self._eng.append((now, z))
-        while self._eng and now - self._eng[0][0] > self.p.peak_window_s:
-            self._eng.popleft()
-        peak = max((v for _, v in self._eng), default=z)
-        drop = peak - z
-        dropping = self.drop_timer.update(drop >= self.p.drop_z, now, ok)
-        calm = self.calm_timer.update(z < self.p.band_low, now, ok)
-        ref = self._boost_ref[-1] if self._boost_ref else None
-        recovered = self.recover_timer.update(
-            ref is not None and z >= ref - self.p.recover_z, now, ok and ref is not None)
-        if not ok:
+        fall = self.drop.update(state.engagement_z, now, ok)
+        if fall is None:
             return []
-        cooled = self._last_boost is None or now - self._last_boost >= self.p.boost_cooldown_s
-        if (dropping or calm) and cooled:
-            for t in (self.drop_timer, self.calm_timer, self.recover_timer):
-                t.reset()
-            self._last_boost = now
-            if dropping:
-                why = (f"engagement fell {drop:.1f} below its {self.p.peak_window_s / 60:g}-min "
-                       f"peak ({peak:+.1f} → {z:+.1f})")
-            else:
-                why = f"engagement_z < {self.p.band_low:g} for {self.p.calm_hold_s:g} s (now {z:+.1f})"
-            self._eng.clear()  # the next step needs a fresh drop from here
-            self._eng.append((now, z))
+        if fall.kind == "falling":
             if self.boost >= self.p.max_boost or self.base_level + self.boost >= MAX_LEVEL:
-                out = [Decision("cave_sound", {}, reason=f"{why} at max difficulty → cave sounds")]
+                out = [Decision("cave_sound", {}, reason=f"{fall.why} at max difficulty → cave sounds")]
                 if LEVELS[self.level][5]:
                     out.append(Decision("darkness", {"seconds": self.p.darkness_s},
-                                        reason=f"{why} at max difficulty → darkness"))
+                                        reason=f"{fall.why} at max difficulty → darkness"))
                 return out
-            # Recover = back near where engagement was before it started to
-            # fall: never below an earlier step's level, and at least out of
-            # the absolute "bored" band.
-            ref = max([peak, self.p.band_low + self.p.recover_z, *self._boost_ref])
-            self._boost_ref.append(ref)
+            self.drop.push(fall.peak)
             self.boost += 1
-            return [Decision("boost_up", {"boost": self.boost, "drop": round(drop, 2)},
-                             reason=f"{why} → harder: +{self.boost} level above the time schedule")
+            return [Decision("boost_up", {"boost": self.boost, "drop": round(fall.drop, 2)},
+                             reason=f"{fall.why} → harder: +{self.boost} level above the time schedule")
                     ] + self._sync_level(now, cause=f"engagement falling (boost +{self.boost})")
-        if recovered and self.boost > 0:
-            self.recover_timer.reset()
+        if self.boost > 0:  # recovered
             self.boost -= 1
-            self._boost_ref.pop()
+            self.drop.pop()
             return [Decision("boost_down", {"boost": self.boost},
-                             reason=(f"engagement back to {z:+.1f} (≥ {ref - self.p.recover_z:+.1f}) "
-                                     f"for {self.p.recover_hold_s:g} s → boost {self.boost}"))
+                             reason=f"{fall.why} → boost {self.boost}")
                     ] + self._sync_level(now, cause="engagement recovered")
         return []
 
@@ -301,12 +269,12 @@ class FunDirector:
     def _start_breather(self, now: float, why: str) -> list[Decision]:
         self.breather_until = now + self.p.breather_s
         self.misses_in_row = 0
-        for t in (self.drop_timer, self.calm_timer, self.recover_timer, self.fatigue_timer):
-            t.reset()
+        self.drop.reset_timers()
+        self.fatigue_timer.reset()
         eased = ""
         if self.boost > 0:  # ease off, but never below the time schedule
             self.boost -= 1
-            self._boost_ref.pop()
+            self.drop.pop()
             eased = f", boost {self.boost + 1} → {self.boost}"
         out = [Decision("breather_start", {"duration_s": self.p.breather_s, "boost": self.boost},
                         reason=f"overloaded: {why} → {self.p.breather_s:g} s breather{eased}, "

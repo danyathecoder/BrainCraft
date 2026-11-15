@@ -293,7 +293,7 @@ def test_fun_breather_then_wave():
 def test_fun_breather_eases_boost_not_below_time_schedule():
     f = FunDirector(seed=1)
     f.start(0)
-    f.boost, f._boost_ref = 1, [1.0]
+    f.boost, f.drop.refs = 1, [1.0]
     f.on_state(st(eng=1.0), 100)  # base 1 + boost 1
     assert f.level == 2
     out = []

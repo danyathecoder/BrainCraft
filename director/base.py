@@ -111,3 +111,89 @@ class HoldTimer:
 
     def reset(self) -> None:
         self.elapsed = 0.0
+
+
+@dataclass
+class Fall:
+    """What EngagementDrop.update() saw this second."""
+
+    kind: str  # "falling" | "recovered"
+    why: str  # human-readable cause, for decision reasons
+    drop: float = 0.0
+    peak: float = 0.0
+    z: float = 0.0
+
+
+class EngagementDrop:
+    """Engagement falling relative to the player's OWN recent level.
+
+    Absolute z-scores can sit high all session (baseline mismatch,
+    smoothing), so "falling" means: engagement_z at least `drop_z` below
+    its peak of the last `peak_window_s` for `drop_hold_s` good seconds,
+    or below the absolute `band_low` for `calm_hold_s`. At most one
+    "falling" per `cooldown_s`; after one the peak restarts from now, so
+    the next needs a fresh drop. The caller decides what a fall does and
+    calls push(peak) when it raises difficulty a step; "recovered" fires
+    when engagement is back within `recover_z` of where it was before
+    that step for `recover_hold_s` good seconds (caller then pop()s).
+    Bad-quality seconds count for nothing.
+    """
+
+    def __init__(self, peak_window_s: float = 120.0, drop_z: float = 0.5,
+                 drop_hold_s: float = 10.0, band_low: float = -0.5, calm_hold_s: float = 15.0,
+                 recover_z: float = 0.2, recover_hold_s: float = 30.0, cooldown_s: float = 30.0):
+        self.peak_window_s, self.drop_z, self.band_low = peak_window_s, drop_z, band_low
+        self.calm_hold_s, self.recover_z, self.recover_hold_s = calm_hold_s, recover_z, recover_hold_s
+        self.cooldown_s = cooldown_s
+        self.drop_timer = HoldTimer(drop_hold_s)
+        self.calm_timer = HoldTimer(calm_hold_s)
+        self.recover_timer = HoldTimer(recover_hold_s)
+        self.refs: list[float] = []  # engagement before each step taken
+        self._hist: list[tuple[float, float]] = []
+        self._last: float | None = None
+
+    def push(self, peak: float) -> None:
+        """A difficulty step was taken: remember where engagement was before it.
+
+        Never below an earlier step's level, and at least out of the
+        absolute "bored" band.
+        """
+        self.refs.append(max([peak, self.band_low + self.recover_z, *self.refs]))
+
+    def pop(self) -> None:
+        if self.refs:
+            self.refs.pop()
+
+    def reset_timers(self) -> None:
+        for t in (self.drop_timer, self.calm_timer, self.recover_timer):
+            t.reset()
+
+    def update(self, z: float, now: float, ok: bool) -> Fall | None:
+        if ok:
+            self._hist.append((now, z))
+        self._hist = [(t, v) for t, v in self._hist if now - t <= self.peak_window_s]
+        peak = max((v for _, v in self._hist), default=z)
+        drop = peak - z
+        dropping = self.drop_timer.update(drop >= self.drop_z, now, ok)
+        calm = self.calm_timer.update(z < self.band_low, now, ok)
+        ref = self.refs[-1] if self.refs else None
+        recovered = self.recover_timer.update(
+            ref is not None and z >= ref - self.recover_z, now, ok and ref is not None)
+        if not ok:
+            return None
+        cooled = self._last is None or now - self._last >= self.cooldown_s
+        if (dropping or calm) and cooled:
+            self.reset_timers()
+            self._last = now
+            if dropping:
+                why = (f"engagement fell {drop:.1f} below its {self.peak_window_s / 60:g}-min "
+                       f"peak ({peak:+.1f} → {z:+.1f})")
+            else:
+                why = f"engagement_z < {self.band_low:g} for {self.calm_hold_s:g} s (now {z:+.1f})"
+            self._hist = [(now, z)]  # the next step needs a fresh drop from here
+            return Fall("falling", why, drop, peak, z)
+        if recovered and ref is not None:
+            self.recover_timer.reset()
+            return Fall("recovered", (f"engagement back to {z:+.1f} (≥ {ref - self.recover_z:+.1f}) "
+                                      f"for {self.recover_hold_s:g} s"), drop, peak, z)
+        return None
