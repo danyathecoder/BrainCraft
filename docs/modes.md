@@ -11,6 +11,7 @@ live with the HUD buttons. Parameters live in `director/rehab.py`
 - [Brain signals](#brain-signals)
 - [Rehab mode](#rehab-mode)
 - [Fun mode](#fun-mode)
+- [Sounds](#sounds)
 - [Decision catalogue](#decision-catalogue)
 - [What gets measured](#what-gets-measured)
 - [Tuning cheat sheet](#tuning-cheat-sheet)
@@ -302,6 +303,72 @@ muscle control.
 
 ---
 
+## Sounds
+
+Sounds are part of the feedback, and in rehab part of the training. All
+of them are sent by the game loop over RCON as `playsound` commands
+(`game/effects.py`); Minecraft itself adds the enemies' own sounds and
+the storm.
+
+**Two kinds of sound:**
+- **Positional (at the target).**
+  - **How:** `playsound <sound> master <player> <x> <y+1> <z> <volume> <pitch>`, played at the target's own coordinates.
+  - **What the player hears:** Minecraft pans it in stereo and fades it with distance. They **hear which side it comes from** before they see the target, and the stereo balance shifts as they turn toward it.
+  - **Range:** volume 3 = audible up to 48 blocks (16 × volume); targets stand 24 blocks away.
+  - **Used for:** cues and misses.
+- **At the player (non-directional).**
+  - **How:** `execute as <player> at @s run playsound … @s ~ ~ ~`, so it plays at the same loudness wherever the player looks.
+  - **Used for:** feedback about the game state (hit, rest, level-up, new enemy, …).
+
+**Every sound the game plays:**
+
+| When | Sound (`minecraft:…`) | Where | Volume / pitch | Mode |
+|---|---|---|---|---|
+| **Cue:** a cued target spawns | `block.note_block.bell` | **at the target** | 3 / 1.2 (high) | rehab |
+| **Cue repeat:** cued target not found after 2 s (`CUE_REPEAT_S`) | `block.note_block.bell` | **at the target** | 3 / 1.2 | rehab |
+| **Hit** | `entity.experience_orb.pickup` | at the player | 1 / 1.2 | both |
+| **Miss** (lifetime over) | `block.note_block.bass` | **at the target** | 2 / 0.6 (low) | both |
+| Sheep shot (false tag) | `entity.villager.no` | at the player | 1 / 1 | fun |
+| Rest phase starts / breather | `block.amethyst_block.chime` | at the player | 1 / 0.8 (soft, low) | rehab / fun |
+| Rest over ("Back to the watch") | `block.bell.use` | at the player | 1 / 1 | rehab |
+| **ALI reward** (+1 heart) | `block.amethyst_block.chime` | at the player | 0.8 / 1.6 (bright) | rehab |
+| New enemy ("New enemy!") | `event.raid.horn` | at the player | 1 / 1.4 | both |
+| Wave after a breather | `event.raid.horn` | at the player | 1 / 1 | fun |
+| Bow upgrade | `entity.player.levelup` | at the player | 1 / 1 | fun |
+| Level-up (escalation), boost at max level | `ambient.cave` (category `ambient`) | at the player | 1 / 1 | fun |
+
+**How the sounds change during a session:**
+- **Cues follow performance (rehab).**
+  - **Cues on:** after ≤ 2 of 5 left hits, the next 5 left targets are cued. The bell plays from the target's position, so the player hears "something on the left" and turns toward it. If they still haven't looked at it (within ±10°) after 2 s, the bell rings once more.
+  - **Cues off:** after 5 cued targets, or a staircase step up. Auditory spatial cueing toward the neglected side is the point of this; it fades out as the player improves.
+- **Misses are located.**
+  - **What:** the low bass plays where the missed target stood, together with smoke.
+  - **Why:** the player learns where they failed to look.
+- **Feedback sounds are paired with meaning.**
+  - **Rising / reward:** bright, high sounds (hit 1.2, ALI reward 1.6).
+  - **Calm / rest:** soft, low ones (rest 0.8).
+  - **Threat:** horns (new enemy, wave).
+  - Each also has a text in the action bar or a title, so the sound is never the only signal.
+- **Fun mode gets louder as it gets harder.** Every level-up plays a cave sound. A further engagement drop at max level adds another, with darkness on levels 3–4.
+
+**Sounds that come from Minecraft itself:**
+- **Enemies make their normal sounds** (no `Silent` tag): rattling bones, the bow being drawn, crossbow loading, blaze breathing and fireballs. These come from the enemy's real position, so in fun mode the player can hear an attacker before seeing it.
+- **Storm (fun only):**
+  - **Rain and thunder** from `weather thunder`.
+  - **Our lightning bolts** (every 15–40 s, 42 blocks away, in view) bring their own thunder clap from that direction.
+  - **Rehab** stays a clear, quiet night.
+
+**Client settings that matter:**
+- **Stereo headphones** (or speakers left and right of the player). Without stereo, positional cues lose their direction.
+- **Music & Sounds:** Master, Hostile Creatures, Weather and Ambient/Environment must not be muted. Turning **Music** off is fine and makes the cues clearer.
+- **Pause on Lost Focus off** (F3+P), so sounds keep playing while the HUD window is in front.
+
+**Tuning:** the sound ids, volumes and pitches are constants at the top of
+`game/effects.py` (`CUE_SOUND`, `HIT_SOUND`, `MISS_SOUND`, …). The cue
+repeat time is `CUE_REPEAT_S` in `game/trials.py`.
+
+---
+
 ## Decision catalogue
 
 Every decision is echoed in the action bar and the HUD log, and saved
@@ -373,6 +440,7 @@ The report is a training summary, not a diagnostic assessment.
 | fun bow tiers (XP thresholds, enchantments) | `game/bow.py` `TIERS` |
 | storm lightning: how often, how far | `game/effects.py` `LIGHTNING_EVERY_S`, `LIGHTNING_DISTANCE`, `LIGHTNING_MAX_ANGLE` |
 | XP per kill / sheep penalty | `mc/enemies.py` `xp`, `MOB_XP_BONUS`, `SHEEP_XP_PENALTY` |
+| sounds (ids, volume, pitch) / cue repeat | `game/effects.py` `*_SOUND`, `sound_at_cmd`; `game/trials.py` `CUE_REPEAT_S` |
 
 Test any change without hardware first:
 `poetry run python game_loop.py --mode rehab --sim --no-service --duration 600 --speed 0`.
