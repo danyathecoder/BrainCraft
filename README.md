@@ -43,7 +43,13 @@ with its numbers: **[docs/modes.md](docs/modes.md)**.
 | **EEG headset** (optional) | g.tec Unicorn Hybrid Black | Apple silicon, macOS 14+; allow Bluetooth (and Local Network, for two computers) for your terminal in System Settings → Privacy & Security | pair it in Settings → Bluetooth |
 
 Check: `python3 --version` (Windows: `py --version`), `poetry --version`,
-`java -version` (25), `git --version`.
+`git --version`, and Java 25:
+- **Windows:** `java -version`.
+- **macOS:** `/opt/homebrew/opt/openjdk@25/bin/java -version`. Homebrew
+  keeps it off PATH, so plain `java -version` says "Unable to locate a
+  Java Runtime". That's fine: the setup script finds it. To make `java`
+  work everywhere:
+  `sudo ln -sfn /opt/homebrew/opt/openjdk@25/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-25.jdk`.
 
 **Common pitfalls:**
 - **Windows "Python was not found" / error 9009:** turn off the
@@ -52,6 +58,12 @@ Check: `python3 --version` (Windows: `py --version`), `poetry --version`,
   `poetry env use (py -3.13 -c "import sys; print(sys.executable)")`.
 - **macOS:** python.org Pythons ship without CA certificates; the setup
   verifies downloads with `certifi` anyway, so nothing to do.
+- **Flaky venue Wi-Fi:**
+  - Poetry's "All attempts to connect to pypi.org failed" means the
+    network dropped: rerun the same command, or switch to a phone hotspot.
+  - "Cannot reach Mojang" while setting up the Minecraft server: download
+    `server.jar` for 26.3 on another network, then
+    `poetry run python scripts/setup_mc_server.py --accept-eula --jar <path> --offline`.
 
 Without the headset, everything still runs: `make dev` (HUD sliders +
 simulated game) or synthetic EEG. Details for every piece:
@@ -60,7 +72,7 @@ simulated game) or synthetic EEG. Details for every piece:
 ## Installation
 
 ```bash
-git clone git@github.com:danyathecoder/BrainCraft.git
+git clone https://github.com/danyathecoder/BrainCraft.git   # or git@github.com:danyathecoder/BrainCraft.git with an SSH key
 cd BrainCraft
 make setup ACCEPT_EULA=1    # Python deps + g.Pype headset driver + Minecraft 26.3 server
 make doctor                 # checks Python, Java, server, EULA, LSL streams, baselines
@@ -72,6 +84,11 @@ make doctor                 # checks Python, Java, server, EULA, LSL streams, ba
   1. `poetry install --with gpype` (drop `--with gpype` on computers without the headset);
   2. `poetry run python scripts/setup_mc_server.py --accept-eula`;
   3. `poetry run python scripts/braincraft.py doctor`.
+- **Takes** about 2 minutes on a good connection: the g.Pype group is
+  several hundred MB, and `server.jar` is about 60 MB.
+- **Done when** `make doctor` shows OK for Python, Poetry, the packages,
+  g.Pype, Java 25, "Minecraft server set up" and "EULA accepted". Rows for
+  running services and baselines stay `--` until you start a session.
 - **Then** see the Quickstart below.
 
 ## Roles
