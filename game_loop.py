@@ -44,6 +44,7 @@ from mc import config
 from mc.rcon import RconError
 
 LOOP_HZ = 5.0
+ALI_SCALE = 0.15  # FakeBrain: ALI swings much less than the z-scores
 KEEP_PLAYER_S = 5.0  # re-apply the movement lock (lost on death/respawn)
 STATE_FIELD_NAMES = {f.name for f in dc_fields(BrainState)}
 
@@ -119,8 +120,9 @@ class FakeBrain:
         self._last = now
         for k in self.x:  # OU: mean 0, stationary sd = self.sd
             self.x[k] += -self.x[k] * dt / self.tau + self.sd * math.sqrt(2 * dt / self.tau) * self.rng.gauss(0, 1)
-        eng, fat, alpha, ali = (self.x["engagement_z"], self.x["fatigue_z"],
-                                self.x["alpha_low_z"], self.x["ali"])
+        eng, fat, alpha = self.x["engagement_z"], self.x["fatigue_z"], self.x["alpha_low_z"]
+        # ALI is a small, smoothed ratio (about +-0.1 vs baseline), not a z-score.
+        ali = self.x["ali"] * ALI_SCALE
         if self.fatigue_at is not None:
             el = now - self._t0 - self.fatigue_at
             if 0 <= el < self.fatigue_len_s:

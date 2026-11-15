@@ -69,6 +69,7 @@ CAVE_SOUND = "minecraft:ambient.cave"
 FALSE_TAG_SOUND = "minecraft:entity.villager.no"
 WAVE_SOUND = "minecraft:event.raid.horn"
 LEVEL_UP_SOUND = "minecraft:entity.player.levelup"
+HEAL_SOUND = "minecraft:block.amethyst_block.chime"
 
 _MODE_SUBTITLE = {
     "rehab": "Rehab: scan left and right",
@@ -235,6 +236,16 @@ class Effects:
         """Fun-mode atmosphere: a bolt far behind the targets, in view."""
         self.cmd(lightning_cmd(angle_deg, 180.0 if facing_yaw is None else facing_yaw))
 
+    def heal(self, hp: int = 2) -> None:
+        """Rehab ALI reward. Regeneration II heals 1 HP every 25 ticks, so a
+        duration just over 25 * hp ticks heals `hp` HP (2 HP: 3 s)."""
+        seconds = 25 * int(hp) // 20 + 1
+        self.cmd(f"effect give {self.player} minecraft:regeneration {seconds} 1 true")
+        self.cmd(sound_at_player_cmd(HEAL_SOUND, 0.8, 1.6, player=self.player))
+        hearts = hp / 2
+        self.cmd(actionbar_cmd(f"+{hearts:g} heart{'s' if hearts != 1 else ''}", "green",
+                               player=self.player))
+
     def keep_player(self) -> None:
         """Re-apply the movement lock; after a death and respawn Minecraft
         resets player attributes. Idempotent, called every few s. No
@@ -357,6 +368,8 @@ class Effects:
             self.wave(prm.get("n", 5))
         elif a == "mode":
             self.mode_switch(prm.get("mode", "rehab"))
+        elif a == "ali_reward":
+            self.heal(prm.get("hp", 2))
         elif a == "bow_upgrade":
             self.bow_upgrade(prm.get("tier", 0), prm.get("label", ""))
         elif a == "enemy_unlock":

@@ -58,17 +58,17 @@ def test_make_director():
 
 def test_staircase_up_and_window_reset():
     d = RehabDirector(seed=1)
-    assert d.left_ecc_deg == 15 and d.p_left == 0.5
+    assert d.left_ecc_deg == 15 and d.p_left == 0.1
     out = feed(d, [True, True, False, True, True])
     assert [x.action for x in out] == ["staircase_up"]
-    assert d.left_ecc_deg == 25 and d.p_left == pytest.approx(0.6)
+    assert d.left_ecc_deg == 25 and d.p_left == 0.1  # the staircase moves the angle only
     assert "4/5" in out[0].reason and "15° → 25°" in out[0].reason
     # window was reset: four more hits are not enough for another step
     assert feed(d, [True] * 4, t0=10) == []
     assert feed(d, [True], t0=20)[0].action == "staircase_up"
-    assert d.left_ecc_deg == 35 and d.p_left == pytest.approx(0.7)
+    assert d.left_ecc_deg == 35
     feed(d, [True] * 5, t0=30)
-    assert d.left_ecc_deg == 45 and d.p_left == pytest.approx(0.7)  # p_left capped
+    assert d.left_ecc_deg == 45
     assert feed(d, [True] * 5, t0=40) == []  # top of the staircase: nothing changes
     assert d.left_ecc_deg == 45
 
@@ -81,7 +81,7 @@ def test_staircase_down_turns_cues_on_then_off():
     assert d.left_ecc_deg == 15 and d.cues_on
     assert "cues on" in out[0].reason
     # force left spawns and check they are cued, then cues_off after 5
-    d.p_left = 1.0
+    d.p.p_left_max = d.p_left = 1.0
     d.start(100)
     t, cued, decisions = 102.0, [], []
     while len(cued) < 6:
@@ -91,7 +91,7 @@ def test_staircase_down_turns_cues_on_then_off():
             decisions += d.on_trial_result("L", True, t + 0.5)
         t += 0.2
     assert cued == [True] * 5 + [False]
-    assert [x.action for x in decisions] == ["cues_off", "staircase_up"]  # 5 hits also step up
+    assert [x.action for x in decisions if x.action != "left_chance"] == ["cues_off", "staircase_up"]
 
 
 def test_staircase_down_at_min_still_cues_and_middle_band_no_change():
@@ -227,7 +227,8 @@ def test_one_target_unhit_gap_and_hit_gap():
 def test_status_fields():
     s = RehabDirector().status()
     assert s == {"mode": "rehab", "resting": False, "spawn_interval_s": 4.0, "p_left": 0.0,
-                 "left_ecc_deg": 15.0, "warmup": True, "ali_bias": False, "ali": None}
+                 "left_ecc_deg": 15.0, "warmup": True, "ali": None, "ali_rewards": 0,
+                 "enemy_tier": 0, "enemy_boost": 0}
 
 
 # --- fun mode -----------------------------------------------------------------
@@ -340,59 +341,91 @@ def test_warmup_is_right_only_even_if_ali_is_negative():
     assert [x.action for x in later][:1] == ["warmup_end"] and not d.warming_up
 
 
-def test_ali_bias_needs_hold_and_has_hysteresis():
-    d = RehabDirector(params=RehabParams(warmup_s=0, lead_in_s=0), seed=2)
-    d.start(0)
-    # ALI wobbling around the threshold never holds 10 s: no switch
-    out = []
-    for t in range(40):
-        out += d.on_state(BrainState(t=t, ali=-0.06 if t % 3 else -0.04), t)
-    assert not d.ali_bias and not any(x.action.startswith("ali_bias") for x in out)
-    # clearly below for 10 good seconds -> bias on, more left targets
-    out = []
-    for t in range(40, 51):
-        out += d.on_state(BrainState(t=t, ali=-0.2), t)
-    assert d.ali_bias and [x.action for x in out] == ["ali_bias_on"]
-    assert d.p_left_effective == 0.8 and d.status()["p_left"] == 0.8
-    assert "attention biased right" in out[0].reason
-    # between ali_off and ali_on: stays on (hysteresis)
-    out = []
-    for t in range(51, 80):
-        out += d.on_state(BrainState(t=t, ali=-0.02), t)
-    assert d.ali_bias and out == []
-    # above ali_off for 10 s (and the 20 s dwell is over) -> off
-    out = []
-    for t in range(80, 91):
-        out += d.on_state(BrainState(t=t, ali=0.05), t)
-    assert not d.ali_bias and [x.action for x in out] == ["ali_bias_off"]
-    assert d.p_left_effective == 0.5 and all_have_reasons(out)
-
-
-def test_ali_minimum_dwell_and_bad_quality():
-    d = RehabDirector(params=RehabParams(warmup_s=0, lead_in_s=0, ali_hold_s=2,
-                                         ali_min_dwell_s=20), seed=3)
-    d.start(0)
-    for t in range(3):
-        d.on_state(BrainState(t=t, ali=-0.3), t)
-    assert d.ali_bias
-    for t in range(3, 10):  # recovered, but the dwell time is not over
-        d.on_state(BrainState(t=t, ali=0.3), t)
-    assert d.ali_bias
-    for t in range(10, 30):  # bad-quality seconds count for nothing
-        d.on_state(BrainState(t=t, ali=0.3, quality="bad"), t)
-    assert d.ali_bias
-    d.on_state(BrainState(t=30, ali=0.3), 30)
-    assert not d.ali_bias
-
-
-def test_bias_raises_left_share_of_spawns():
+def test_after_warmup_mostly_right_then_hits_shift_left():
     import collections
 
-    d = RehabDirector(params=RehabParams(warmup_s=0, lead_in_s=0, ali_hold_s=1), seed=4)
+    d = RehabDirector(params=RehabParams(warmup_s=10, lead_in_s=0), seed=4)
     d.start(0)
-    specs, _ = _drive(d, ali=-0.5, until=400)
-    sides = collections.Counter(spec.side for _, spec in specs)
-    assert sides["L"] / sum(sides.values()) > 0.7  # 0.5 + 0.3 boost
+    d.on_trial_result("R", True, 5)  # hits in the warm-up don't move the side
+    assert d.p_left == 0.1
+    d.on_state(BrainState(t=11), 11)
+    assert not d.warming_up and d.p_left_effective == 0.1
+    sides = collections.Counter(d._spec("L" if d.rng.random() < d.p_left else "R", 15).side
+                                for _ in range(2000))
+    assert 0.07 < sides["L"] / 2000 < 0.13  # 10% left
+    out = []
+    for i in range(4):
+        out += d.on_trial_result("R", True, 20 + i)  # 4 hits: 0.10 -> 0.30
+    assert d.p_left == 0.3 and [x.action for x in out] == ["left_chance", "left_chance"]
+    assert "10% → 20%" in out[0].reason and "20% → 30%" in out[1].reason
+    d.on_trial_result("R", False, 25)
+    assert d.on_trial_result("R", True, 26) == []  # wobbling 0.25 / 0.3: not logged
+    for i in range(20):
+        d.on_trial_result("L", True, 30 + i)
+    assert d.p_left == 0.7  # capped
+    for i in range(20):
+        d.on_trial_result("R", False, 60 + i)
+    assert d.p_left == 0.1  # floor
+
+
+def _ali_states(d, values, t0=0.0, quality="ok"):
+    out = []
+    for i, a in enumerate(values):
+        out += d.on_state(BrainState(t=t0 + i, ali=a, quality=quality), t0 + i)
+    return [x for x in out if x.action == "ali_reward"]
+
+
+def test_rising_ali_heals_with_cooldown():
+    d = RehabDirector(params=RehabParams(lead_in_s=0), seed=5)
+    d.start(0)
+    rewards = _ali_states(d, [0.0, 0.03])  # +0.03 in 1 s
+    assert len(rewards) == 1 and rewards[0].params["hp"] == 2
+    assert "attention moving left" in rewards[0].reason and "+1 heart" in rewards[0].reason
+    assert _ali_states(d, [0.06, 0.09, 0.12], t0=2) == []  # inside the 5 s cooldown
+    assert len(_ali_states(d, [0.12, 0.15], t0=6)) == 1  # cooldown over
+    assert _ali_states(d, [0.15, 0.16], t0=20) == []  # +0.01: too small
+    assert _ali_states(d, [0.0, 0.5], t0=30, quality="bad") == []  # bad quality
+    d.on_state(BrainState(t=40, ali=0.0), 40)
+    assert _ali_states(d, [0.5], t0=45) == []  # 5 s gap: not "in one second"
+    assert d.status()["ali_rewards"] == 2
+
+
+def test_no_reward_while_resting():
+    d = RehabDirector(params=RehabParams(warmup_s=0), seed=6)
+    d.start(0)
+    d.rest_until = 100.0
+    assert _ali_states(d, [0.0, 0.5, 1.0], t0=10) == []
+
+
+def test_rehab_enemies_slow_schedule_and_engagement_boost():
+    d = RehabDirector(params=RehabParams(warmup_s=0, lead_in_s=0), seed=7)
+    d.start(0)
+    for t in range(0, 400):  # engaged, steady: only the slow schedule
+        d.on_state(BrainState(t=t, engagement_z=1.0), t)
+        if t == 299:
+            assert d.enemy_tier == 0
+    assert d.enemy_tier == 1 and d.enemy_boost == 0  # stray from 5 min
+    out = []
+    for t in range(400, 421):  # engagement 0.6 below its peak for 20 s
+        out += d.on_state(BrainState(t=t, engagement_z=0.4), t)
+    acts = [x.action for x in out]
+    assert acts == ["enemy_boost_up", "enemy_unlock"] and d.enemy_boost == 1 and d.enemy_tier == 2
+    assert out[1].params["enemy"] == "bogged" and "harder enemies" in out[0].reason
+    for t in range(421, 500):  # stays low: no second boost (max +1)
+        d.on_state(BrainState(t=t, engagement_z=-0.4), t)
+    assert d.enemy_boost == 1
+    specs = [d.due_spawns(500 + 10 * i, 0) for i in range(5)]
+    assert {s[0].enemy for s in specs if s} <= {"skeleton", "stray", "bogged"}
+    for t in range(550, 612):  # recovers to its earlier level for 60 s
+        d.on_state(BrainState(t=t, engagement_z=1.0), t)
+    assert d.enemy_boost == 0 and d.enemy_tier == 2  # 10 min in: the schedule reached bogged too
+
+
+def test_rest_rule_still_fires_for_strongly_low_engagement():
+    d = RehabDirector(params=RehabParams(warmup_s=0), seed=8)
+    d.start(0)
+    out = run_states(d, [st(eng=-2.0)] * 30)
+    assert "rest_start" in [x.action for x in out]
 
 
 def test_fun_spawns_several_at_higher_levels():

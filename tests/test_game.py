@@ -286,35 +286,30 @@ def test_two_minute_rehab_session(tmp_path):
     assert "time set 23000" in rcon.commands
 
 
-def test_rehab_warmup_right_then_ali_bias_left(tmp_path):
-    """Warm-up minute is right-only; a sustained negative ALI then favours the left."""
+def test_rehab_warmup_then_mostly_right_and_ali_heals(tmp_path):
+    """Warm-up right-only, then ~10% left at first; a rising ALI heals the player."""
     from log.events import EventLogger
 
     class Brain:
-        def __init__(self):
-            self.t0 = None
-
-        def get(self, now):
-            if self.t0 is None:
-                self.t0 = now
-            ali = 0.1 if now - self.t0 < 100 else -0.3
-            return BrainState(t=now, ali=ali, quality="ok")
+        def get(self, now):  # ALI climbs 0.03 per second: attention moving left
+            return BrainState(t=now, ali=round((now % 100) * 0.03, 3), quality="ok")
 
     t0 = 1_800_000_000.0
     clock = game_loop.SimClock(start=t0, speed=0)
     rcon = SimRcon(clock=clock.now, seed=3)
     logger = EventLogger("test-rehab-ali", directory=tmp_path)
     game_loop.run_session(mode="rehab", rcon=rcon, logger=logger, clock=clock,
-                          duration_s=300, sim=True, brain=Brain(), out=lambda *_: None)
+                          duration_s=200, sim=True, brain=Brain(), out=lambda *_: None)
     logger.close()
     events = read_csv(logger.path)
     spawns = [e for e in events if e["event"] == "spawn"]
     assert all(e["side"] == "R" for e in spawns if float(e["t"]) - t0 < 60)
-    late = [e["side"] for e in spawns if float(e["t"]) - t0 >= 115]
-    assert late and late.count("L") / len(late) > 0.6
-    reasons = [e["reason"] for e in events if e["event"] == "decision"]
-    assert any("warm-up on the right over" in r for r in reasons)
-    assert sum("attention biased right" in r for r in reasons) == 1  # no flicker
+    first_after = [e["side"] for e in spawns if 60 <= float(e["t"]) - t0][:5]
+    assert first_after.count("L") <= 2  # starts mostly right
+    rewards = [float(e["t"]) for e in events if e["event"] == "decision"
+               and e["value"].startswith("ali_reward")]
+    assert len(rewards) >= 10 and all(b - a >= 5 for a, b in zip(rewards, rewards[1:]))
+    assert sum(c.startswith("effect give @p minecraft:regeneration") for c in rcon.commands) == len(rewards)
     assert "ali" in read_csv(logger.state_path)[0]
 
 
