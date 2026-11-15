@@ -6,16 +6,20 @@ in-game performance, and reshapes the game in real time.
 
 - **Rehab mode (first):** visual scanning training inspired by therapy
   for post-stroke spatial neglect. Each signal has one job:
-  - **warm-up:** the first 60 s on the right side only;
-  - **the brain decides which side:** a sustained rightward alpha
-    lateralization (ALI, relative to the player's own calibration) sends
-    more targets left;
-  - **performance decides how far:** a left-eccentricity staircase, with
-    cues after failures;
+  - **warm-up:** the first 60 s on the right side only, then 10% left /
+    90% right;
+  - **performance decides the side and how far:** every hit moves spawns
+    5 points to the left (up to 70%), every miss back; a left-angle
+    staircase with cues after failures;
+  - **the brain rewards:** a rising alpha lateralization (ALI, attention
+    moving left, relative to the player's own calibration) heals the
+    player (+1 heart);
+  - **the brain hardens the enemies, slowly:** a new enemy type every
+    5 min, one earlier while engagement falls below its own recent peak;
   - **fatigue decides when to rest:** an EEG-driven dawn rest phase.
 
-  Targets are skeletons that live 60 s and shoot back, so ignoring the
-  left has a cost, and the player can die (respawn is immediate).
+  Targets live 60 s and shoot back, so ignoring the left has a cost, and
+  the player can die (respawn is immediate).
 - **Fun mode (second):** same engine, the director builds tension arcs.
   Difficulty rises every 90 s (pace, count, enemy type: skeleton → stray
   → bogged → pillager → blaze, all shooting), and up to two levels more
@@ -25,6 +29,50 @@ in-game performance, and reshapes the game in real time.
 
 How both modes spawn targets, which metrics drive them and every rule
 with its numbers: **[docs/modes.md](docs/modes.md)**.
+
+## Prerequisites
+
+| What | Version | macOS | Windows |
+|---|---|---|---|
+| **Python** | 3.11–3.14 | `brew install python@3.13` | `winget install Python.Python.3.13` (or python.org, tick "Add python.exe to PATH") |
+| **pipx + Poetry** | Poetry 2.x | `brew install pipx && pipx ensurepath && pipx install poetry` | `py -m pip install --user pipx`, `py -m pipx ensurepath`, new terminal, `pipx install poetry` |
+| **Git** | any | `xcode-select --install` | `winget install Git.Git` |
+| **make** (optional) | any | included with `xcode-select --install` | `winget install ezwinports.make`, or run the launcher directly (`poetry run python scripts/braincraft.py …`) |
+| **Java** (Minecraft server) | **25** | `brew install openjdk@25` (keg-only; the setup script finds it) | `winget install EclipseAdoptium.Temurin.25.JDK` |
+| **Minecraft Java Edition** | **26.3** | Minecraft Launcher from minecraft.net; a licence per computer that plays | same |
+| **EEG headset** (optional) | g.tec Unicorn Hybrid Black | Apple silicon, macOS 14+; allow Bluetooth (and Local Network, for two computers) for your terminal in System Settings → Privacy & Security | pair it in Settings → Bluetooth |
+
+Check: `python3 --version` (Windows: `py --version`), `poetry --version`,
+`java -version` (25), `git --version`.
+
+**Common pitfalls:**
+- **Windows "Python was not found" / error 9009:** turn off the
+  `python.exe` App execution aliases (Settings → Apps → Advanced app
+  settings), or point Poetry at a real Python:
+  `poetry env use (py -3.13 -c "import sys; print(sys.executable)")`.
+- **macOS:** python.org Pythons ship without CA certificates; the setup
+  verifies downloads with `certifi` anyway, so nothing to do.
+
+Without the headset, everything still runs: `make dev` (HUD sliders +
+simulated game) or synthetic EEG. Details for every piece:
+[`docs/setup.md`](docs/setup.md).
+
+## Installation
+
+```bash
+git clone git@github.com:danyathecoder/BrainCraft.git
+cd BrainCraft
+make setup ACCEPT_EULA=1    # Python deps + g.Pype headset driver + Minecraft 26.3 server
+make doctor                 # checks Python, Java, server, EULA, LSL streams, baselines
+```
+
+- **`ACCEPT_EULA=1`** accepts the [Minecraft EULA](https://aka.ms/MinecraftEULA).
+  Leave it out to install only the Python side.
+- **Without make:**
+  1. `poetry install --with gpype` (drop `--with gpype` on computers without the headset);
+  2. `poetry run python scripts/setup_mc_server.py --accept-eula`;
+  3. `poetry run python scripts/braincraft.py doctor`.
+- **Then** see the Quickstart below.
 
 ## Roles
 

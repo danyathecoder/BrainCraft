@@ -86,10 +86,10 @@ the player's calibration baseline and smooths them (EMA ~15 s).
 
 | Signal | What it is | Used for |
 |---|---|---|
-| `engagement_z` | β/(α+θ) at Fz, Cz (Pope 1995), z vs baseline | rehab: low-engagement rest, challenge band; fun: **falling vs its own 2-min peak → harder** (boost) |
+| `engagement_z` | β/(α+θ) at Fz, Cz (Pope 1995), z vs baseline | **falling vs its own 2-min peak → harder** (fun: levels, fast; rehab: enemies, slow); rehab: strongly low → rest, challenge band |
 | `fatigue_z` | (θ+α)/β at Fz, z vs baseline | rehab: rest phase; fun: overload breather |
 | `alpha_low_z` | 8–10 Hz power at Pz, Oz | logged and shown, no rule uses it yet |
-| `ali` | (α PO7 − α PO8)/(α PO7 + α PO8) **minus the player's calibration mean**; < 0 = attention drifting right | rehab: side bias |
+| `ali` | (α PO7 − α PO8)/(α PO7 + α PO8) **minus the player's calibration mean**; rising = attention moving left | rehab: **rising ALI heals the player** (+1 heart) |
 | `quality` | `ok` when ≥ 2 of the 4 seconds are clean | every EEG rule counts **only good-quality seconds** |
 | `artifact`, `jaw_clench` | newest second: blink / jaw / motion / contact | fun: jaw clench = flare |
 
@@ -106,50 +106,70 @@ neglect (left side ignored). **Each signal has one job:**
 
 | Question | Decided by |
 |---|---|
-| When does the session open up? | **warm-up**: first 60 s on the right only |
-| Which side? | **the brain (ALI)**: rightward bias → more left targets |
-| How far left? | **performance**: the left-eccentricity staircase, plus cues |
-| When to rest? | **the brain (fatigue / engagement)**: dawn rest phase |
+| How does the session start? | **warm-up**: first 60 s on the right only, then **10% left / 90% right** |
+| Which side? | **performance**: every hit moves spawns +0.05 to the left, every miss −0.05 |
+| How far left? | **performance**: the left-angle staircase, plus cues |
+| How tough are the enemies? | **time (very slow) + falling engagement** |
+| Reward | **the brain (ALI)**: attention moving left heals the player |
+| When to rest? | **the brain (fatigue / strongly low engagement)**: dawn rest phase |
 
 ```mermaid
 stateDiagram-v2
   [*] --> WarmUp: session start
-  WarmUp --> Play: 60 s over
-  state Play {
-    [*] --> Normal
-    Normal --> Bias: ALI < -0.05 for 10 s (good seconds)
-    Bias --> Normal: ALI > 0 for 10 s, and >= 20 s since the last switch
+  WarmUp --> Training: 60 s over (10% left)
+  state Training {
+    [*] --> Scan
+    Scan --> Scan: hit +0.05 left / miss -0.05
+    Scan --> Scan: ALI rises >= 0.02 in 1 s: +1 heart
   }
-  Play --> Rest: fatigue_z > 1.5 for 20 s, or engagement_z < -1.5 for 30 s
-  Rest --> Play: 45 s over (spawn interval +0.5 s)
+  Training --> Rest: fatigue_z > 1.5 for 20 s, or engagement_z < -1.5 for 30 s
+  Rest --> Training: 45 s over (slower pace)
 ```
 
 ### Spawning
 - **One target at a time** (`max_active` = 1). The first appears 2 s after the start (`lead_in_s`).
-- **Lifetime: 60 s** (`target_lifetime_s`). The skeleton shoots the whole time, so ignoring it hurts.
+- **Lifetime: 60 s** (`target_lifetime_s`). The enemy shoots the whole time, so ignoring it hurts, and the player can die.
 - **Next target:** 1 s after a **hit** (`hit_gap_s`), or `spawn_interval_s` (4 s) after a **miss**.
-- **Warm-up, the first 60 s** (`warmup_s`): right side only, at a random eccentricity.
-- **After the warm-up:** left with probability **`p_left` effective**, otherwise right.
-  - **Left** targets use the staircase eccentricity, and are cued while cues are on.
+- **Warm-up, the first 60 s** (`warmup_s`): right side only, at a random angle.
+- **After the warm-up:** left with probability **`p_left`**, which starts at **0.1**, otherwise right.
+  - **Left** targets use the staircase angle, and are cued while cues are on.
   - **Right** targets stay at **35°** (`right_ecc_deg`), a stable control condition so left/right differences reflect the left side.
 - **No spawns during a rest.** Targets still up when a rest starts are removed without counting.
 
-### Side: the ALI bias (brain)
-- `p_left` effective = `p_left` (staircase, 0.5 → max 0.7), **+0.3 while the bias is on** (`ali_p_left_boost`), at most 0.9. It is 0 during the warm-up.
-- **Bias on:** ALI below **−0.05** (`ali_on`) for **10 good seconds** (`ali_hold_s`).
-- **Bias off:** ALI above **0** (`ali_off`) for 10 good seconds.
-- **Hysteresis:** between −0.05 and 0 nothing changes. A switch also needs **≥ 20 s** since the last one (`ali_min_dwell_s`). Switches only happen on good-quality seconds.
-- **Baseline:** ALI is relative to the player's calibration mean, so contact differences between PO7 and PO8 cancel out. It is held while PO7 or PO8 is flagged bad.
+### Side: hits move the spawns left (performance)
+- **Every hit** (either side) raises `p_left` by **0.05**, and **every miss** lowers it by 0.05, within **0.10–0.70** (`p_left_hit_step`, `p_left_miss_step`, `p_left_min`, `p_left_max`).
+- **Not during the warm-up.**
+- A **`left_chance`** decision is logged each time `p_left` has moved a full 10 points since the last one ("hits → left targets 10% → 20%"). Smaller wobbles aren't logged.
+- In a simulated 10-min session it climbs from 10% to 70% in about 3 minutes of good play.
 
 ### Distance: the staircase (performance)
 It runs over the last **5 left** targets (`staircase_window`); right targets don't count:
-- **≥ 4 hits** → left eccentricity one step out (15 → 25 → 35 → 45°), `p_left` +0.1 (max 0.7), cues off.
+- **≥ 4 hits** → left angle one step out (15 → 25 → 35 → 45°), cues off.
 - **≤ 2 hits** → one step in, and **cues on** for the next 5 left targets (glow + sound).
 - 3 hits → no change.
-- The window is cleared after every step.
+- The window is cleared after every step. The staircase no longer changes the side.
+
+### Reward: rising ALI heals (brain)
+- **ALI is relative to the player's calibration,** smoothed over ~15 s, and updated every second.
+- **Trigger:** a good-quality second where ALI rose by **≥ 0.02** compared with the previous second (`ali_reward_rise`). A rising ALI means attention is moving **left**, which is what the training wants.
+- **Effect:** **+2 HP (1 heart)**, via Regeneration II for 3 s, a chime, and "+1 heart" in the action bar. It also shows as an `ali_reward` decision with its reason.
+- **At most once every 5 s** (`ali_reward_cooldown_s`). It needs consecutive good seconds, and doesn't fire during a rest. It does work during the warm-up.
+- **Tuning note:** because ALI is smoothed, a 0.02 rise in one second needs a clear real shift. If the reward almost never fires with real players, lower `ali_reward_rise`; if it fires constantly, raise it. With realistic simulated ALI it fires about 4 times a minute.
+
+### Enemies: very slowly harder, faster when engagement falls (brain)
+They use the same enemies as fun mode (`mc/enemies.py`: skeleton → stray → bogged → pillager → blaze, each with more HP), but **much slower**.
+
+- **Time:** +1 tier every **5 minutes** (`enemy_every_s`; fun: 90 s). A standard 10-minute session ends when bogged arrive.
+- **Falling engagement:** **+1 tier** (at most, `max_enemy_boost`) when `engagement_z` stays **0.5 below its own 2-minute peak for 20 good seconds**. It uses the same detector as fun mode (`EngagementDrop`), with slower settings.
+  - The step is undone after engagement is back near its earlier level for **60 s**.
+  - Steps are at least **60 s** apart.
+- **Relation to the rest rule:** a *strong, absolute* low (`engagement_z < −1.5` for 30 s) still means a rest. The harder enemy is for a *moderate, relative* drop.
+- **Pick:** each spawn is the newest allowed enemy half the time, otherwise an older one. This applies to left and right targets alike, so the right-side control stays comparable.
+- **Lifetime** stays 60 s for every enemy; tougher ones need more arrows. Each trial logs its enemy (`target:stray`), so hit times can be compared per enemy.
+- **New enemies** show "New enemy!" (`enemy_unlock`). Boost steps log `enemy_boost_up` / `enemy_boost_down`.
 
 ### Pace: the challenge rule (performance + brain)
-Hit rate **> 85 % over the last 10 trials** while `engagement_z` is in
+Hit rate **> 85% over the last 10 trials** while `engagement_z` is in
 **[−0.5, 1.0]** → spawn interval −0.5 s (floor 2 s). The trial window is
 then cleared.
 
@@ -290,18 +310,20 @@ to the CSV.
 | Action | Mode | Trigger | In-game effect |
 |---|---|---|---|
 | `rehab_start` / `fun_start` | both | session or mode start | title + subtitle |
-| `warmup_end` | rehab | 60 s elapsed | both sides from now on |
-| `ali_bias_on` / `ali_bias_off` | rehab | ALI rule above | `p_left` 0.8 / back to the staircase value |
-| `staircase_up` / `staircase_down` | rehab | 5 left trials | eccentricity, `p_left`, cues |
+| `warmup_end` | rehab | 60 s elapsed | both sides from now on, 10% left |
+| `left_chance` | rehab | hits / misses moved `p_left` a full 10 points | more or fewer left targets |
+| `ali_reward` | rehab | ALI rose ≥ 0.02 in 1 s (max every 5 s) | +1 heart, chime, "+1 heart" |
+| `enemy_boost_up` / `enemy_boost_down` | rehab | engagement 0.5 below its 2-min peak for 20 s / recovered for 60 s | next enemy tier early / back to the 5-min schedule |
+| `staircase_up` / `staircase_down` | rehab | 5 left trials | left angle, cues |
 | `cues_off` | rehab | 5 cued targets shown | — |
 | `spawn_interval` | rehab | challenge rule, or after a rest | faster / slower pace |
 | `rest_start` / `rest_end` | rehab | fatigue / engagement rule | dawn + titles / midnight |
 | `escalate` / `deescalate` | fun | time step (every 90 s), boost change, breather | level change |
 | `boost_up` / `boost_down` | fun | engagement falling vs its 2-min peak / recovered for 30 s | +1 / −1 level above the time schedule |
 | `cave_sound`, `darkness`, `clear_darkness` | fun | with a level-up (darkness on levels 3–4) / level-down | sound, Darkness effect |
-| `breather_start` / `breather_end`, `wave` | fun | overload | pause, then 5 walking skeletons |
+| `breather_start` / `breather_end`, `wave` | fun | overload | pause, then 5 walking enemies |
 | `flare` | fun | jaw clench | all targets glow 5 s |
-| `enemy_unlock` | fun | the level reaches a new enemy tier | "New enemy!" title + threat |
+| `enemy_unlock` | both | a new enemy tier is reached (fun: level; rehab: 5-min schedule + boost) | "New enemy!" title + threat |
 | `bow_upgrade` | fun | session XP reaches the next bow tier | better bow in hand, "Bow upgraded!" title |
 | `mode` | both | HUD button | mode switch title |
 
@@ -334,10 +356,12 @@ The report is a training summary, not a diagnostic assessment.
 | Want | Change |
 |---|---|
 | shorter / longer warm-up | `RehabParams.warmup_s` |
-| ALI reacts more or less easily | `ali_on`, `ali_off`, `ali_hold_s`, `ali_min_dwell_s`, `ali_p_left_boost` |
+| rehab: how fast spawns move left | `RehabParams.p_left` (start 0.1), `p_left_hit_step`, `p_left_miss_step`, `p_left_min`, `p_left_max` |
+| rehab: ALI healing reward | `ali_reward_rise` (0.02), `ali_reward_cooldown_s` (5 s), `ali_reward_hp` (2) |
+| rehab: harder enemies | `enemy_every_s` (300 s), `max_enemy_boost` (1), `enemy_drop_z`, `enemy_drop_hold_s`, `enemy_recover_hold_s`, `enemy_boost_cooldown_s` |
 | more or less time to find a rehab target | `RehabParams.target_lifetime_s` (60 s) |
 | rests trigger more easily (smoothed z-scores move little) | `fatigue_z_threshold`, `engagement_z_low`, `fatigue_hold_s` |
-| staircase steps | `staircase_window`, `staircase_up_hits`, `staircase_down_hits`, `p_left_max` |
+| staircase steps (left angle) | `staircase_window`, `staircase_up_hits`, `staircase_down_hits` |
 | target angles / distance | `mc/config.py` `ECCENTRICITIES`, `TARGET_DISTANCE` (keep ≤ 45° at FOV 70) |
 | fun difficulty curve | `director/fun.py` `LEVELS`, `FunParams` |
 | fun target lifetime | `mc/config.py` `TARGET_LIFETIME_S`, `FunParams.mob_lifetime_s` / `sheep_lifetime_s` |

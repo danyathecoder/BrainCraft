@@ -1,4 +1,4 @@
-"""Directors: rehab (warm-up, ALI side bias, staircase, fatigue rest) and fun."""
+"""Directors: rehab (warm-up, hit-driven side, staircase, ALI reward, slow enemies, rest) and fun."""
 
 from __future__ import annotations
 

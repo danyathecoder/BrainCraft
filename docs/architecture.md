@@ -100,6 +100,8 @@ flowchart LR
 - **Game event:** poll `execute if entity @e[tag=t17]`. The target is gone before its 60 s are up → hit (feedback sound, staircase update, next target in 1 s). Still there → miss (smoke, kill, maybe cues on).
 - **Brain events (rehab):**
   - `fatigue_z > 1.5` for 20 s with good quality → rest phase shown as dawn (`time set 23000`, "Take a breath"), then back to midnight with slower spawns.
-  - ALI (vs the player's calibration) below −0.05 for 10 s → "rightward bias": `p_left` +0.3. Back above 0 for 10 s → off. Each switch holds at least 20 s.
+  - ALI (vs the player's calibration) rising ≥ 0.02 in one second → +1 heart (Regeneration II), at most every 5 s.
+  - `engagement_z` 0.5 below its own 2-min peak for 20 s → the next enemy type early (otherwise one every 5 min).
+- **Game events (rehab):** every hit moves the left-target chance +0.05, every miss −0.05 (after a 60 s right-only warm-up, starting at 10%).
 - **Player:** the movement lock is re-applied every 5 s, because a death and respawn resets them (skeletons shoot back; difficulty normal).
 - Every decision is mirrored in-game (`title @p actionbar …`) and in the HUD log, so judges see why the game changed.

@@ -667,17 +667,19 @@ hits/misses, runs the director, logs to `sessions/`.
 
 **Rehab mode in one paragraph** (full rules for both modes:
 [modes.md](modes.md)).
-- **Warm-up:** the first 60 s, targets on the right only.
-- **Side:** after that, the side is drawn with `p_left`. A sustained
-  negative ALI (rightward attention bias, relative to the player's
-  calibration) raises `p_left` by 0.3, with hysteresis and at least 20 s
-  between switches.
-- **Distance:** the left eccentricity follows a performance staircase
-  (15–45°), with cues after failures.
-- **Rest:** fatigue or low engagement triggers a 45 s dawn rest.
-- **Targets:** skeletons that live 60 s and shoot (difficulty normal),
-  so the player can die. Respawn is immediate, and the loop re-applies
-  the movement lock every 5 s.
+- **Warm-up:** the first 60 s, targets on the right only; then 10% left.
+- **Side:** every hit moves the left chance +0.05, every miss −0.05
+  (0.10–0.70).
+- **Distance:** the left angle follows a performance staircase (15–45°),
+  with cues after failures.
+- **Reward:** ALI rising ≥ 0.02 in one second (attention moving left)
+  heals 2 HP, at most every 5 s.
+- **Enemies:** a tougher enemy type every 5 min, one earlier while
+  engagement has fallen below its own 2-min peak.
+- **Rest:** fatigue or strongly low engagement triggers a 45 s dawn rest.
+- **Targets:** they live 60 s and shoot (difficulty normal), so the
+  player can die. Respawn is immediate, and the loop re-applies the
+  movement lock every 5 s.
 - **Report:** every decision has a reason in the HUD and the report.
   The ALI curve is in report section 1.
 
