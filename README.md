@@ -35,7 +35,7 @@ with its numbers: **[docs/modes.md](docs/modes.md)**.
 | What | Version | macOS | Windows |
 |---|---|---|---|
 | **Python** | 3.11–3.14 | `brew install python@3.13` | `winget install Python.Python.3.13` (or python.org, tick "Add python.exe to PATH") |
-| **pipx + Poetry** | Poetry 2.x | `brew install pipx && pipx ensurepath && pipx install poetry` | `py -m pip install --user pipx`, `py -m pipx ensurepath`, new terminal, `pipx install poetry` |
+| **pipx + Poetry** | Poetry 2.2+ (older versions reject `pyproject.toml`) | `brew install pipx && pipx ensurepath && pipx install poetry` | `py -m pip install --user pipx`, `py -m pipx ensurepath`, new terminal, `pipx install poetry` |
 | **Git** | any | `xcode-select --install` | `winget install Git.Git` |
 | **make** (optional) | any | included with `xcode-select --install` | `winget install ezwinports.make`, or run the launcher directly (`poetry run python scripts/braincraft.py …`) |
 | **Java** (Minecraft server) | **25** | `brew install openjdk@25` (keg-only; the setup script finds it) | `winget install EclipseAdoptium.Temurin.25.JDK` |
@@ -182,7 +182,7 @@ Common extras: `SKIP_CAL=1` (no calibration protocol), `DURATION=300`,
 `make doctor` (what's installed and running), `make report`.
 No hardware at all: `make dev` (HUD sliders + simulated game).
 
-Dependencies are managed with [Poetry](https://python-poetry.org/) 2.x.
+Dependencies are managed with [Poetry](https://python-poetry.org/) 2.2+ (it reads the `[dependency-groups]` table; older Poetry fails with "data.group.gpype must contain ['dependencies']"; fix with `pipx upgrade poetry` or `poetry self update`).
 
 ```bash
 poetry install                   # creates the venv, installs deps + dev group
