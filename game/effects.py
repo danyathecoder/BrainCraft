@@ -355,7 +355,7 @@ class Effects:
         elif a == "rest_end":
             self.rest_end()
         elif a == "darkness":
-            self.darkness(prm.get("seconds", 30))
+            self.darkness(prm.get("seconds", 5))
         elif a == "clear_darkness":
             self.clear_darkness()
         elif a == "cave_sound":

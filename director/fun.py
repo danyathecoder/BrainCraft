@@ -74,7 +74,7 @@ class FunParams:
     overload_cooldown_s: float = 45.0
     flare_s: float = 5.0
     flare_cooldown_s: float = 30.0
-    darkness_s: int = 30
+    darkness_s: int = 5  # Darkness effect length; 30 s was too long to play in
     lead_in_s: float = 2.0
     target_lifetime_s: float = config.TARGET_LIFETIME_S
     mob_lifetime_s: float = 14.0

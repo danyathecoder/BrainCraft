@@ -230,7 +230,7 @@ flowchart LR
 | 4 maximum | 6 min | 1.5 s | 3 | 45° | 40 % | 25 % | yes | Blaze |
 
 - **Each level-up** plays a cave sound, and on levels 3–4 adds darkness for
-  30 s. A level-down clears the darkness.
+  5 s (`FunParams.darkness_s`). A level-down clears the darkness.
 - **Side:** left/right 50/50.
 - **Lifetimes:** still target **6 s** (`TARGET_LIFETIME_S`), walking mob 14 s, sheep 8 s. Tougher enemies get their own, longer lifetime (table below).
 
